@@ -1,0 +1,22 @@
+# PostgreSQL 开发容器（可选）
+# 无 Docker 的机器可直接用 SQLite（backend/.env 中 DB_TYPE=sqlite，默认）
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: campushub-postgres
+    environment:
+      POSTGRES_USER: campushub
+      POSTGRES_PASSWORD: campushub
+      POSTGRES_DB: campushub
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campushub"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

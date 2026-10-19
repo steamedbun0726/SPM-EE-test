@@ -1,0 +1,24 @@
+# 依赖与构建产物
+node_modules/
+dist/
+*.log
+
+# 运行时数据（SQLite 开发库）
+backend/data/
+*.sqlite
+*.sqlite3
+
+# 环境变量（保留 .env.example）
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# 测试覆盖率
+coverage/
+
+# 前端构建
+frontend/dist/
