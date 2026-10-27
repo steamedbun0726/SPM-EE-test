@@ -12,6 +12,7 @@ import { SystemConfig } from '../src/database/entities/system-config.entity';
 import { SeatStatusLog } from '../src/database/entities/seat-status-log.entity';
 import { InitSchema1780000000000 } from '../src/database/migrations/1780000000000-init-schema';
 import { ReservationsService } from '../src/modules/m1-seats/reservations.service';
+import QRCode = require('qrcode');
 import { SpacesService } from '../src/shared/spaces/spaces.service';
 import { SeatStateService } from '../src/shared/spaces/seat-state.service';
 import { SystemConfigService } from '../src/shared/system-config/system-config.service';
@@ -31,6 +32,12 @@ function todayStr(): string {
 function tomorrowStr(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function afterTomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 2);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
@@ -274,6 +281,36 @@ describe('M1 自习座位预约（ReservationsService，sqljs 内存库）', () 
     );
     expect(ok.status).toBe('booked');
     expect(ok.spaceId).toBe(csSpace.id);
+  });
+
+  it('签到二维码：SVG 结构合法，内容与当日动态码一致，同一空间同日确定', async () => {
+    const date = tomorrowStr();
+    const qr = await service.getQrCode(libSpace.id, date);
+
+    // SVG 结构：以 <svg 开头、含 </svg>，且携带二维码矩阵 path
+    expect(qr.svg.startsWith('<svg')).toBe(true);
+    expect(qr.svg).toContain('</svg>');
+    expect(qr.svg).toContain('<path');
+
+    // 内容与动态码一致（二维码内容即签到码）
+    expect(qr.code).toBe(service.getDynamicCode(libSpace.id, date).code);
+    expect(qr.code).toMatch(/^A\d+\d{4}$/);
+
+    // SVG 即「以动态码为内容、固定参数」的确定性输出（防止编码内容被篡改而不自知）
+    const ref = await QRCode.toString(qr.code, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 240,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    expect(qr.svg).toBe(ref);
+
+    // 确定性：同一 (spaceId, date) 生成同一 SVG；不同日期生成不同 SVG
+    const again = await service.getQrCode(libSpace.id, date);
+    expect(again.svg).toBe(qr.svg);
+    const nextDay = await service.getQrCode(libSpace.id, afterTomorrowStr());
+    expect(nextDay.svg).not.toBe(qr.svg);
   });
 
   it('取消：未开始的 booked 可取消，已开始的不可取消', async () => {

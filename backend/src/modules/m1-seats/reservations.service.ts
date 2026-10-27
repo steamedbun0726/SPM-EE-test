@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import QRCode = require('qrcode');
 import { FindOptionsWhere, In, Repository } from 'typeorm';
 import { Reservation, ReservationStatus } from '../../database/entities/reservation.entity';
 import { RoomBookingRequest } from '../../database/entities/room-booking-request.entity';
@@ -289,6 +290,22 @@ export class ReservationsService {
       sum = (sum + s.charCodeAt(i)) % 10000;
     }
     return { code: `A${spaceId}${String(sum % 10000).padStart(4, '0')}` };
+  }
+
+  /**
+   * 教室屏幕用签到二维码（SVG）：内容与当日动态码一致，方便学生扫码签到。
+   * 确定性：同一 (spaceId, date) 生成同一二维码，教室屏幕当日保持不变。
+   */
+  async getQrCode(spaceId: number, date: string): Promise<{ code: string; svg: string }> {
+    const { code } = this.getDynamicCode(spaceId, date);
+    const svg = await QRCode.toString(code, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 240,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    return { code, svg };
   }
 
   /** 运营统计：按空间统计全部预约数 / no_show 数 / 签到数（M1-11） */

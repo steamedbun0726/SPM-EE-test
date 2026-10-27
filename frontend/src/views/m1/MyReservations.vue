@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { mine, checkIn, cancel, dynamicCode } from '@/api/m1'
+import { mine, checkIn, cancel, qrCode } from '@/api/m1'
 import type { Reservation, ReservationStatus } from '@/api/types'
 
 const statusOptions = [
@@ -101,16 +101,20 @@ async function handleCancel(row: Reservation) {
 
 async function showDynamicCode(row: Reservation) {
   try {
-    const res = await dynamicCode(row.spaceId, row.date)
-    ElMessageBox.alert(
-      `${row.spaceName}（${row.date}）当日动态签到码为：\n\n${res.code}\n\n请在入座前对屏幕显示核对，当日有效。`,
-      '当前教室动态码',
-      { confirmButtonText: '知道了' },
-    )
+    const res = await qrCode(row.spaceId, row.date)
+    qrSvg.value = res.svg
+    qrCodeText.value = res.code
+    qrTitle.value = `${row.spaceName}（${row.date}）当日签到码`
+    qrVisible.value = true
   } catch {
     /* 拦截器已统一提示 */
   }
 }
+
+const qrVisible = ref(false)
+const qrTitle = ref('')
+const qrCodeText = ref('')
+const qrSvg = ref('')
 
 onMounted(load)
 </script>
@@ -192,6 +196,14 @@ onMounted(load)
         <el-button type="primary" :loading="checkingIn" @click="confirmCheckIn">确认签到</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="qrVisible" :title="qrTitle" width="360" align-center>
+      <div class="qr-box">
+        <div class="qr-svg" v-html="qrSvg"></div>
+        <p class="qr-code-text">当日动态码：<b>{{ qrCodeText }}</b></p>
+        <p class="qr-tip">教室屏幕展示同款二维码，学生可扫码或录入该编码完成签到，当日有效。</p>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -232,5 +244,34 @@ onMounted(load)
 
 .checkin-form {
   margin-top: 8px;
+}
+
+.qr-box {
+  text-align: center;
+  padding: 4px 0 8px;
+}
+
+.qr-svg {
+  display: inline-block;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+}
+
+.qr-svg :deep(svg) {
+  display: block;
+}
+
+.qr-code-text {
+  margin: 12px 0 4px;
+  font-size: 15px;
+  color: #303133;
+}
+
+.qr-tip {
+  margin: 0;
+  font-size: 12px;
+  color: #909399;
 }
 </style>

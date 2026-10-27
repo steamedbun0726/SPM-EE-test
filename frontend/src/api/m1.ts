@@ -46,6 +46,11 @@ export function dynamicCode(spaceId: number, date: string): Promise<{ code: stri
   return http.get(`/m1/spaces/${spaceId}/dynamic-code`, { params: { date } }).then((r) => r.data)
 }
 
+/** 教室签到二维码（SVG，内容即当日动态码）：GET /m1/spaces/:spaceId/qrcode?date= */
+export function qrCode(spaceId: number, date: string): Promise<{ code: string; svg: string }> {
+  return http.get(`/m1/spaces/${spaceId}/qrcode`, { params: { date } }).then((r) => r.data)
+}
+
 /** 运营统计：GET /m1/stats（权限 stats.view） */
 export function stats(): Promise<Record<string, unknown>> {
   return http.get('/m1/stats').then((r) => r.data)

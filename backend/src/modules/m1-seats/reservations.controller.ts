@@ -95,6 +95,12 @@ export class ReservationsController {
     return this.reservationsService.getDynamicCode(spaceId, date);
   }
 
+  /** 教室屏幕用签到二维码（SVG）：内容与当日动态码一致（阶段 2 新增） */
+  @Get('spaces/:spaceId/qrcode')
+  qrCode(@Param('spaceId', ParseIntPipe) spaceId: number, @Query('date') date: string) {
+    return this.reservationsService.getQrCode(spaceId, date);
+  }
+
   @Get('stats')
   @Permissions('stats.view')
   stats() {
