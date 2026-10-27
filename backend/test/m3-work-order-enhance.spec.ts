@@ -8,6 +8,7 @@ import { WorkOrdersService } from '../src/modules/m3-maintenance/work-orders.ser
 import { SharedModule } from '../src/shared/shared.module';
 import { InitSchema1780000000000 } from '../src/database/migrations/1780000000000-init-schema';
 import { M3WorkOrderEnhance1780000001000 } from '../src/database/migrations/1780000001000-m3-work-order-enhance';
+import { M3WorkOrderFields1780000002000 } from '../src/database/migrations/1780000002000-m3-work-order-fields';
 
 import { WorkOrder } from '../src/database/entities/work-order.entity';
 import { WorkOrderEvent } from '../src/database/entities/work-order-event.entity';
@@ -17,6 +18,8 @@ import { SeatStatusLog } from '../src/database/entities/seat-status-log.entity';
 import { Notification } from '../src/database/entities/notification.entity';
 import { SystemConfig } from '../src/database/entities/system-config.entity';
 import { Reservation } from '../src/database/entities/reservation.entity';
+import { Violation } from '../src/database/entities/violation.entity';
+import { RoomBookingRequest } from '../src/database/entities/room-booking-request.entity';
 import { AuditLog } from '../src/database/entities/audit-log.entity';
 import { User } from '../src/database/entities/user.entity';
 import { Role } from '../src/database/entities/role.entity';
@@ -47,10 +50,11 @@ describe('M3 工单增强（一期）', () => {
           entities: [
             User, Role, Permission,
             Space, Seat, SeatStatusLog,
-            Reservation, Notification, AuditLog, SystemConfig,
+            Reservation, Violation, RoomBookingRequest,
+            Notification, AuditLog, SystemConfig,
             WorkOrder, WorkOrderEvent,
           ],
-          migrations: [InitSchema1780000000000, M3WorkOrderEnhance1780000001000],
+          migrations: [InitSchema1780000000000, M3WorkOrderEnhance1780000001000, M3WorkOrderFields1780000002000],
         }),
         SharedModule,
         M3MaintenanceModule,

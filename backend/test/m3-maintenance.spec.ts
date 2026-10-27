@@ -8,6 +8,7 @@ import { WorkOrdersService } from '../src/modules/m3-maintenance/work-orders.ser
 import { SharedModule } from '../src/shared/shared.module';
 import { InitSchema1780000000000 } from '../src/database/migrations/1780000000000-init-schema';
 import { M3WorkOrderEnhance1780000001000 } from '../src/database/migrations/1780000001000-m3-work-order-enhance';
+import { M3WorkOrderFields1780000002000 } from '../src/database/migrations/1780000002000-m3-work-order-fields';
 
 import { WorkOrder } from '../src/database/entities/work-order.entity';
 import { WorkOrderEvent } from '../src/database/entities/work-order-event.entity';
@@ -17,6 +18,8 @@ import { SeatStatusLog } from '../src/database/entities/seat-status-log.entity';
 import { Notification } from '../src/database/entities/notification.entity';
 import { SystemConfig } from '../src/database/entities/system-config.entity';
 import { Reservation } from '../src/database/entities/reservation.entity';
+import { Violation } from '../src/database/entities/violation.entity';
+import { RoomBookingRequest } from '../src/database/entities/room-booking-request.entity';
 import { AuditLog } from '../src/database/entities/audit-log.entity';
 import { User } from '../src/database/entities/user.entity';
 import { Role } from '../src/database/entities/role.entity';
@@ -45,10 +48,11 @@ describe('M3 物业报修工单', () => {
           entities: [
             User, Role, Permission,
             Space, Seat, SeatStatusLog,
-            Reservation, Notification, AuditLog, SystemConfig,
+            Reservation, Violation, RoomBookingRequest,
+            Notification, AuditLog, SystemConfig,
             WorkOrder, WorkOrderEvent,
           ],
-          migrations: [InitSchema1780000000000, M3WorkOrderEnhance1780000001000],
+          migrations: [InitSchema1780000000000, M3WorkOrderEnhance1780000001000, M3WorkOrderFields1780000002000],
         }),
         SharedModule,
         M3MaintenanceModule,
@@ -97,7 +101,14 @@ describe('M3 物业报修工单', () => {
     expect(wo.workOrderNo).toMatch(/^WO-\d{8}-\d{3}$/);
     expect(wo.workOrderNo.endsWith('001')).toBe(true);
     expect(wo.escalateLevel).toBe(0);
-    expect(wo.slaDeadline!.getTime()).toBeGreaterThan(Date.now() + 47 * 3600_000); // 默认 48h SLA
+    // SLA 不再是全局 48h：分类基线（未分类=48h）× 优先级系数（high=0.6）≈ 29h
+    const slaHours = (wo.slaDeadline!.getTime() - Date.now()) / 3600_000;
+    expect(slaHours).toBeGreaterThan(28);
+    expect(slaHours).toBeLessThan(30);
+    // 双时限：首响时限应为解决时限的 25%（默认），即约 7h
+    const responseHours = (wo.responseDeadline!.getTime() - Date.now()) / 3600_000;
+    expect(responseHours).toBeGreaterThan(6);
+    expect(responseHours).toBeLessThan(8);
 
     // M3 → M1：座位下架，写入来源 M3
     const down = await seatRepo.findBy({ spaceId: space.id });
