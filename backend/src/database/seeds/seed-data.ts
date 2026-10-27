@@ -13,7 +13,11 @@ export const PERMISSIONS: Array<{ code: string; name: string; description: strin
   { code: 'room.apply', name: '教室预约申请', description: '提交整教室预约申请' },
   { code: 'room.approve', name: '教室审批', description: '审批整教室预约' },
   { code: 'workorder.report', name: '报修上报', description: '上报物业故障' },
-  { code: 'workorder.dispatch', name: '工单派单', description: '派单与升级处理' },
+  { code: 'workorder.dispatch', name: '工单派单', description: '派单、改派与升级处理' },
+  { code: 'workorder.handle', name: '工单处理', description: '维修员接单、完工' },
+  { code: 'workorder.accept', name: '工单验收', description: '上报人验收与评价' },
+  { code: 'workorder.manage', name: '工单管理', description: '合并、强制处理等管理动作' },
+  { code: 'workorder.stats', name: '工单统计', description: '查看工单统计看板' },
   { code: 'stats.view', name: '运营统计', description: '查看预约与工单统计' },
   { code: 'audit.view', name: '审计查看', description: '查看操作审计日志' },
 ];
@@ -30,13 +34,13 @@ export const ROLES: Array<{ code: string; name: string; description: string; per
     code: 'room_admin',
     name: '教室管理员',
     description: '管理自习室/座位主数据、审批教室预约、查看统计',
-    permissions: ['space.manage', 'seat.manage', 'room.approve', 'stats.view', 'audit.view', 'seat.search', 'workorder.report'],
+    permissions: ['space.manage', 'seat.manage', 'room.approve', 'stats.view', 'audit.view', 'seat.search', 'workorder.report', 'workorder.handle', 'workorder.accept'],
   },
   {
     code: 'ops',
     name: '运营管理员',
-    description: '查看运营统计与审计、查询座位',
-    permissions: ['stats.view', 'audit.view', 'seat.search', 'workorder.report'],
+    description: '查看运营统计与审计、查询座位、派单与工单管理',
+    permissions: ['stats.view', 'audit.view', 'seat.search', 'workorder.report', 'workorder.dispatch', 'workorder.accept', 'workorder.manage', 'workorder.stats'],
   },
   {
     code: 'approver',
@@ -48,13 +52,13 @@ export const ROLES: Array<{ code: string; name: string; description: string; per
     code: 'maintenance',
     name: '物业维修员',
     description: '接收并处理报修工单',
-    permissions: ['seat.search', 'workorder.report'],
+    permissions: ['seat.search', 'workorder.report', 'workorder.handle'],
   },
   {
     code: 'student',
     name: '学生',
-    description: '预约自习座位、提交教室预约申请、上报故障',
-    permissions: ['seat.search', 'seat.book', 'seat.signin', 'room.apply', 'workorder.report'],
+    description: '预约自习座位、提交教室预约申请、上报故障、验收工单',
+    permissions: ['seat.search', 'seat.book', 'seat.signin', 'room.apply', 'workorder.report', 'workorder.accept'],
   },
 ];
 
@@ -153,4 +157,5 @@ export const SYSTEM_CONFIGS: Array<{ key: string; value: string; description: st
   { key: 'ROOM_APPROVAL_TIMEOUT_HOURS', value: '2', description: '整教室审批超时自动撤销的小时数（M2）' },
   { key: 'WORKORDER_SLA_HOURS', value: '48', description: '工单维修 SLA 小时数，超时升级（M3）' },
   { key: 'WORKORDER_ESCALATE_HOURS', value: '24', description: '升级后重新计算 SLA 的小时数' },
+  { key: 'WORKORDER_MAX_REOPEN', value: '3', description: '同一工单允许的最大返工次数，超过后需升级处理' },
 ];

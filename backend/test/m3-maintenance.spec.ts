@@ -7,8 +7,10 @@ import { M3MaintenanceModule } from '../src/modules/m3-maintenance/m3-maintenanc
 import { WorkOrdersService } from '../src/modules/m3-maintenance/work-orders.service';
 import { SharedModule } from '../src/shared/shared.module';
 import { InitSchema1780000000000 } from '../src/database/migrations/1780000000000-init-schema';
+import { M3WorkOrderEnhance1780000001000 } from '../src/database/migrations/1780000001000-m3-work-order-enhance';
 
 import { WorkOrder } from '../src/database/entities/work-order.entity';
+import { WorkOrderEvent } from '../src/database/entities/work-order-event.entity';
 import { Seat } from '../src/database/entities/seat.entity';
 import { Space } from '../src/database/entities/space.entity';
 import { SeatStatusLog } from '../src/database/entities/seat-status-log.entity';
@@ -44,9 +46,9 @@ describe('M3 物业报修工单', () => {
             User, Role, Permission,
             Space, Seat, SeatStatusLog,
             Reservation, Notification, AuditLog, SystemConfig,
-            WorkOrder,
+            WorkOrder, WorkOrderEvent,
           ],
-          migrations: [InitSchema1780000000000],
+          migrations: [InitSchema1780000000000, M3WorkOrderEnhance1780000001000],
         }),
         SharedModule,
         M3MaintenanceModule,

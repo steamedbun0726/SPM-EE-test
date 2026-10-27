@@ -89,6 +89,14 @@ export class WorkOrder {
   @Column({ default: '' })
   cancelReason: string;
 
+  /** 返工次数：验收不通过一次 +1，用于限制无限循环（上限见 WORKORDER_MAX_REOPEN） */
+  @Column({ default: 0 })
+  reopenCount: number;
+
+  /** 是否处于 SLA 超时升级待处理状态（派单员在升级列表中处理） */
+  @Column({ default: false })
+  escalated: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

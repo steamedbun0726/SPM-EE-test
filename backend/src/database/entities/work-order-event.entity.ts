@@ -1,0 +1,57 @@
+import { Entity, PrimaryGeneratedColumn, Column, Index, CreateDateColumn } from 'typeorm';
+
+/** 工单事件类型：一次状态流转或关键动作对应一条事件 */
+export type WorkOrderEventType =
+  | 'reported' // 上报
+  | 'dispatched' // 派单
+  | 'reassigned' // 改派
+  | 'started' // 开工（首响）
+  | 'completed' // 完工
+  | 'accepted' // 验收通过
+  | 'rejected' // 验收不通过（返工）
+  | 'hold' // 挂起
+  | 'resumed' // 解除挂起
+  | 'cancelled' // 取消
+  | 'merged' // 合并到其它工单
+  | 'escalated'; // SLA 超时升级
+
+/**
+ * 工单事件（M3 时间线 / 追溯）。
+ *
+ * 设计约束：只追加不修改，作为工单的“黑匣子”。
+ * 所有状态变更统一由 WorkOrdersService 的 transition() 写入，禁止在 Controller 直接补记。
+ */
+@Entity('work_order_events')
+export class WorkOrderEvent {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Index()
+  @Column()
+  workOrderId: number;
+
+  @Column({ type: 'varchar' })
+  type: WorkOrderEventType;
+
+  /** 变更前状态；创建工作单时为 null */
+  @Column({ type: 'varchar', nullable: true })
+  fromStatus: string | null;
+
+  /** 变更后状态 */
+  @Column({ type: 'varchar' })
+  toStatus: string;
+
+  @Column({ type: 'int', nullable: true })
+  operatorId: number | null;
+
+  /** 操作人姓名快照，避免用户改名后历史记录失真 */
+  @Column({ default: '' })
+  operatorName: string;
+
+  /** 备注：改派原因、返工原因、取消原因等 */
+  @Column({ default: '' })
+  note: string;
+
+  @CreateDateColumn()
+  createdAt: Date;
+}
