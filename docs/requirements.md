@@ -53,6 +53,12 @@
 | M3-04 | 完工验收与评价 | 🟢 | `m3-maintenance` | 接口测试 |
 | M3-05 | 某自习室存在维修中工单时全部座位自动下架（M3→M1 写回） | 🟢 | `SeatStateService` | 集成测试 |
 | M3-06 | 工单验收通过后自动恢复座位 | 🟢 | `SeatStateService` | 集成测试 |
+| M3-07 | 单座位粒度报修：仅下架该座位，验收/取消后仅恢复该座位 | 🔴 | 待 M1 确认 `SeatStateService` 座位粒度方法 | 待实现 |
+| M3-08 | 工单事件时间线：每次流转/改派/返工/升级留痕，可查询 | 🟢 | `work_order_events` + `GET /:id/events` | `m3-work-order-enhance.spec.ts` |
+| M3-09 | 改派：派错人可更换维修员，工单号与状态不变并留痕 | 🟢 | `POST /:id/reassign`（`workorder.dispatch`） | 同上 |
+| M3-10 | 验收不通过返工：退回维修中、座位保持下架、限次防死循环 | 🟢 | `accept(result=fail)` + `reopenCount` | 同上 |
+| M3-11 | 工单权限补全：处理/验收/管理/统计四类权限码与越权防护 | 🟢 | 种子权限 + `@Permissions` | 同上 |
+| M3-12 | 超时升级实质处置：置升级标记、进入升级队列、可被处理 | 🟢 | `escalated` + `GET /escalated` | 同上 |
 
 ## 附加项：自然语言会话业务代理（Agent）
 
