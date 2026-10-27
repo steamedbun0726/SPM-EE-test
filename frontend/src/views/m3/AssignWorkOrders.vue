@@ -3,7 +3,10 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listUsers } from '@/api/admin'
 import { pending, dispatch } from '@/api/m3'
+import { useWorkOrderMeta } from '@/composables/useWorkOrderMeta'
 import type { User, WorkOrder } from '@/api/types'
+
+const { ensureLoaded: ensureMeta, categoryLabel, priorityLabel } = useWorkOrderMeta()
 
 const loading = ref(false)
 const list = ref<WorkOrder[]>([])
@@ -77,7 +80,10 @@ async function confirmDispatch() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  ensureMeta()
+  load()
+})
 </script>
 
 <template>
@@ -91,8 +97,12 @@ onMounted(load)
       <el-table v-loading="loading" :data="list" stripe>
         <el-table-column prop="workOrderNo" label="工单号" width="150" />
         <el-table-column prop="title" label="标题" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="category" label="分类" width="90" />
-        <el-table-column prop="priority" label="紧急程度" width="90" />
+        <el-table-column label="分类" width="110">
+          <template #default="{ row }">{{ categoryLabel(row.category) }}</template>
+        </el-table-column>
+        <el-table-column label="紧急程度" width="90">
+          <template #default="{ row }">{{ priorityLabel(row.priority) }}</template>
+        </el-table-column>
         <el-table-column label="升级层级" width="90">
           <template #default="{ row }">{{ row.escalateLevel }}</template>
         </el-table-column>

@@ -2,7 +2,10 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { mine, accept, cancel } from '@/api/m3'
+import { useWorkOrderMeta } from '@/composables/useWorkOrderMeta'
 import type { WorkOrder, WorkOrderStatus, WorkOrderTargetType } from '@/api/types'
+
+const { ensureLoaded: ensureMeta, categoryLabel } = useWorkOrderMeta()
 
 const statusMap: Record<WorkOrderStatus, { label: string; type: string }> = {
   reported: { label: '待派单', type: 'warning' },
@@ -110,7 +113,10 @@ function openDetail(row: WorkOrder) {
   detailVisible.value = true
 }
 
-onMounted(load)
+onMounted(() => {
+  ensureMeta()
+  load()
+})
 </script>
 
 <template>
@@ -239,7 +245,7 @@ onMounted(load)
         <el-descriptions-item label="紧急程度">{{ detail.priority }}</el-descriptions-item>
         <el-descriptions-item label="对象类型">{{ targetTypeMap[detail.targetType] }}</el-descriptions-item>
         <el-descriptions-item label="对象">{{ targetText(detail) }}</el-descriptions-item>
-        <el-descriptions-item label="分类">{{ detail.category || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="分类">{{ categoryLabel(detail.category) }}</el-descriptions-item>
         <el-descriptions-item label="升级层级">{{ detail.escalateLevel }}</el-descriptions-item>
         <el-descriptions-item label="SLA 截止" :span="2">{{ formatTime(detail.slaDeadline) }}</el-descriptions-item>
         <el-descriptions-item label="描述" :span="2">{{ detail.description || '-' }}</el-descriptions-item>

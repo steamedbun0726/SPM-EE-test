@@ -111,6 +111,43 @@ GET  /api/m2/requests/:id/approvals → getApprovals
 
 ## M3 物业报修工单（modules/m3-maintenance）
 
+> **v1.1 更新（2026-10-27）**：一期 + 二期共 19 条需求已落地，本节的公开方法清单已过期。
+> 权威清单见 `backend/src/modules/m3-maintenance/work-orders.service.ts` 与
+> `docs/m3/02-需求规格.md` 附录 A。以下为**新增的跨模块契约**，其他组需要知道的部分：
+>
+> **M3 → M1（新增依赖）**：`M3MaintenanceModule` 现 `imports: [M1SeatsModule]`，用于在座位下架后
+> 处置已有预约。依赖方向单向 M3→M1，无循环。
+>
+> ```ts
+> // M1 ReservationsService 新增公开方法（M3 调用）
+> cancelForSeatsUnderMaintenance(seatIds: number[]): Promise<MaintenanceCancelledReservation[]>
+> // 未来时段的 booked → cancelled（不写 violations，不计违约）
+> // 已开场 / 已签到的 → 返回 ongoing=true 且不改状态，交人工协调
+> ```
+>
+> **D2 座位主数据（shared/spaces/seat-state.service.ts）新增 4 个座位粒度方法**，
+> 供 M3 部分下架使用；既有方法签名未改动，兼容 M1/M2 现有调用：
+>
+> ```ts
+> setSeatsMaintenance(seatIds, workOrderId, operatorId, reason): Promise<number>
+> setSeatMaintenance(seatId, workOrderId, operatorId, reason): Promise<boolean>
+> restoreSeatsAfterMaintenance(seatIds, workOrderId, operatorId, reason): Promise<number>
+> restoreSeatAfterMaintenance(seatId, workOrderId, operatorId, reason): Promise<boolean>
+> ```
+>
+> **D1 用户（shared/rbac/users.service.ts）新增 1 个反查方法**，供 M3 派单与告警使用：
+>
+> ```ts
+> findByPermission(permissionCode: string): Promise<UserWithRoles[]>
+> ```
+>
+> **M1 既有逻辑的一处修正**：`ReservationsService.bookSeat` 现在会在必要时**复用历史行**
+> （同 seatId+date+startHour 的 cancelled/no_show/completed 记录）而不是直接 insert，
+> 以规避 `IDX_reservations_seat_slot` 唯一索引导致的「取消后再也约不上 → 500」。
+> 与 M1 自身 `rebook` 的策略一致。需 M1 组复核。
+
+### 一期基线契约（历史记录，部分已被 v1.1 覆盖）
+
 依赖实体：`WorkOrder`。
 Service：`WorkOrdersService`（公开方法）。
 
@@ -147,6 +184,27 @@ GET  /api/m3/work-orders/pending       → listPending（权限 workorder.dispat
 GET  /api/m3/work-orders/assignments   → listAssignments（维修员）
 GET  /api/m3/work-orders/:id           → getStatus（本人/维修员/管理员）
 ```
+
+### v1.1 新增路由
+
+```
+POST  /api/m3/work-orders/:id/reassign        → reassign（权限 workorder.dispatch）
+POST  /api/m3/work-orders/:id/comments        → addComment（上报人/维修员/派单员）
+PATCH /api/m3/work-orders/:id/eta             → updateEta（参与人）
+PATCH /api/m3/work-orders/:id/photos          → updatePhotos（参与人，≤3 张）
+POST  /api/m3/work-orders/:id/appeal          → appeal（权限 workorder.handle，仅指派维修员）
+POST  /api/m3/work-orders/:id/appeal/resolve  → resolveAppeal（权限 workorder.manage）
+POST  /api/m3/work-orders/:id/revisit         → handleRevisit（权限 workorder.manage）
+GET   /api/m3/work-orders/meta                → meta（字典与限制，无需权限）
+GET   /api/m3/work-orders/escalated           → listEscalated（权限 workorder.dispatch）
+GET   /api/m3/work-orders/revisits            → listRevisits（权限 workorder.manage）
+GET   /api/m3/work-orders/degraded            → listDegraded（权限 workorder.dispatch）
+GET   /api/m3/work-orders/technicians         → technicianWorkload（权限 workorder.stats）
+GET   /api/m3/work-orders/:id/events          → listEvents（访问控制同详情）
+```
+
+所有返回单个工单的接口统一返回 **WorkOrderView**：实体字段 + `seatIdList`、`photoUrlList`（已解析的数组）
++ `categoryLabel`、`priorityLabel`、`statusLabel` + `slaRemainMs`、`slaUsedRatio`。
 
 ## 模块文件组织
 

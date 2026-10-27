@@ -128,27 +128,120 @@ export interface WorkOrder {
   status: WorkOrderStatus
   assigneeId: number | null
   escalateLevel: number
-  slaDeadline: Date | null
-  dispatchedAt: Date | null
-  inProgressAt: Date | null
-  completedAt: Date | null
-  acceptedAt: Date | null
+  slaDeadline: string | null
+  /** 首响时限：与 slaDeadline 构成双时限 */
+  responseDeadline: string | null
+  dispatchedAt: string | null
+  inProgressAt: string | null
+  completedAt: string | null
+  acceptedAt: string | null
   rating: number | null
   ratingComment: string
   cancelReason: string
-  createdAt: Date
-  updatedAt: Date
+  reopenCount: number
+  escalated: boolean
+  /** 本次下架的座位 id 清单（JSON 字符串，视图层已解析为 seatIdList） */
+  seatIds: string
+  seatIdList: number[]
+  etaAt: string | null
+  photoUrls: string
+  photoUrlList: string[]
+  appealReason: string
+  appealAt: string | null
+  appealResult: 'upheld' | 'overturned' | null
+  appealHandledBy: number | null
+  appealHandledAt: string | null
+  revisitRequired: boolean
+  revisitHandled: boolean
+  slaWarned: boolean
+  degradedSuspected: boolean
+  /** 展示用标签（后端返回，避免前端重复维护字典） */
+  categoryLabel: string
+  priorityLabel: string
+  statusLabel: string
+  slaRemainMs: number | null
+  slaUsedRatio: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** 工单事件（时间线） */
+export type WorkOrderEventType =
+  | 'reported'
+  | 'dispatched'
+  | 'reassigned'
+  | 'started'
+  | 'completed'
+  | 'accepted'
+  | 'rejected'
+  | 'hold'
+  | 'resumed'
+  | 'cancelled'
+  | 'merged'
+  | 'escalated'
+  | 'commented'
+  | 'eta_updated'
+  | 'appealed'
+  | 'appeal_resolved'
+  | 'warned'
+  | 'revisited'
+  | 'seats_released'
+
+export interface WorkOrderEvent {
+  id: number
+  workOrderId: number
+  type: WorkOrderEventType
+  fromStatus: string | null
+  toStatus: string
+  operatorId: number | null
+  operatorName: string
+  note: string
+  createdAt: string
+}
+
+/** 字典与限制（GET /m3/work-orders/meta） */
+export interface WorkOrderMeta {
+  categories: { code: string; name: string; defaultSlaHours: number }[]
+  priorities: { code: WorkOrderPriority; name: string; slaFactor: number }[]
+  statuses: { code: WorkOrderStatus; name: string }[]
+  limits: {
+    maxPhotos: number
+    maxReopen: number
+    maxAppeal: number
+    etaMaxDays: number
+    commentMaxLength: number
+  }
+}
+
+/** 维修员负载与技能画像 */
+export interface TechnicianWorkload {
+  userId: number
+  name: string
+  department: string
+  activeCount: number
+  urgentCount: number
+  completedCount: number
+  avgRating: number | null
+  avgHandleHours: number | null
+  topCategories: { category: string; name: string; count: number }[]
 }
 
 /** 报修上报入参（ReportWorkOrderDto） */
 export interface ReportWorkOrderParams {
   title: string
   description?: string
+  /** 分类字典码，见 WorkOrderMeta.categories */
   category?: string
   priority?: WorkOrderPriority
   targetType: WorkOrderTargetType
   targetId?: number
   spaceId?: number
+  /** 部分下架：仅下架这些座位 */
+  seatIds?: number[]
+  /** 现场照片 URL，最多 3 张 */
+  photoUrls?: string[]
+  /** 预计恢复时间（ISO 字符串） */
+  etaAt?: string
 }
 
 /* ===== 公共数据（空间/座位） ===== */

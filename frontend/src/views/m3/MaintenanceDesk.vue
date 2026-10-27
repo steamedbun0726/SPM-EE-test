@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { assignments, start, complete } from '@/api/m3'
+import { assignments, start, complete, updateEta } from '@/api/m3'
+import { useWorkOrderMeta } from '@/composables/useWorkOrderMeta'
 import type { WorkOrder, WorkOrderStatus } from '@/api/types'
+
+const { ensureLoaded: ensureMeta, categoryLabel, priorityLabel } = useWorkOrderMeta()
 
 const statusMap: Record<WorkOrderStatus, { label: string; type: string }> = {
   reported: { label: '待派单', type: 'warning' },
@@ -54,6 +57,34 @@ async function handleStart(row: WorkOrder) {
   }
 }
 
+const etaVisible = ref(false)
+const etaTarget = ref<WorkOrder | null>(null)
+const etaValue = ref('')
+
+function openEta(row: WorkOrder) {
+  etaTarget.value = row
+  etaValue.value = row.etaAt ? new Date(row.etaAt).toISOString() : ''
+  etaVisible.value = true
+}
+
+async function submitEta() {
+  if (!etaTarget.value || !etaValue.value) {
+    ElMessage.warning('请选择预计恢复时间')
+    return
+  }
+  operating.value = true
+  try {
+    await updateEta(etaTarget.value.id, new Date(etaValue.value).toISOString())
+    ElMessage.success('预计恢复时间已更新，已通知上报人')
+    etaVisible.value = false
+    load()
+  } catch {
+    /* 拦截器已统一提示 */
+  } finally {
+    operating.value = false
+  }
+}
+
 async function handleComplete(row: WorkOrder) {
   try {
     await ElMessageBox.confirm(`确认工单 ${row.workOrderNo}（${row.title}）已维修完成？`, '完工', {
@@ -75,7 +106,10 @@ async function handleComplete(row: WorkOrder) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  ensureMeta()
+  load()
+})
 </script>
 
 <template>
@@ -89,8 +123,12 @@ onMounted(load)
       <el-table v-loading="loading" :data="list" stripe>
         <el-table-column prop="workOrderNo" label="工单号" width="150" />
         <el-table-column prop="title" label="标题" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="category" label="分类" width="90" />
-        <el-table-column prop="priority" label="紧急程度" width="90" />
+        <el-table-column label="分类" width="110">
+          <template #default="{ row }">{{ categoryLabel(row.category) }}</template>
+        </el-table-column>
+        <el-table-column label="紧急程度" width="90">
+          <template #default="{ row }">{{ priorityLabel(row.priority) }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="statusMap[row.status as WorkOrderStatus].type" size="small">
@@ -104,7 +142,10 @@ onMounted(load)
         <el-table-column label="SLA 截止" width="170">
           <template #default="{ row }">{{ formatTime(row.slaDeadline) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="预计恢复" width="170">
+          <template #default="{ row }">{{ formatTime(row.etaAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="170" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.status === 'dispatched'" type="success" size="small" :loading="operating" @click="handleStart(row)">
               接单
@@ -112,7 +153,16 @@ onMounted(load)
             <el-button v-else-if="row.status === 'in_progress'" type="primary" size="small" :loading="operating" @click="handleComplete(row)">
               完工
             </el-button>
-            <span v-else class="muted">-</span>
+            <el-button
+              v-if="row.status === 'dispatched' || row.status === 'in_progress'"
+              link
+              type="primary"
+              size="small"
+              @click="openEta(row)"
+            >
+              预计恢复
+            </el-button>
+            <span v-if="row.status !== 'dispatched' && row.status !== 'in_progress'" class="muted">-</span>
           </template>
         </el-table-column>
         <template #empty>
@@ -120,6 +170,14 @@ onMounted(load)
         </template>
       </el-table>
     </el-card>
+
+    <el-dialog v-model="etaVisible" title="设置预计恢复时间" width="380px">
+      <el-date-picker v-model="etaValue" type="datetime" placeholder="选择预计恢复时间" style="width: 100%" />
+      <template #footer>
+        <el-button @click="etaVisible = false">取消</el-button>
+        <el-button type="primary" :loading="operating" @click="submitEta">保存并通知</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
