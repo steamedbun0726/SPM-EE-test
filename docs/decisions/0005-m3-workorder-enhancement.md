@@ -1,9 +1,14 @@
-# ADR-0002：M3 报修工单增强方案的关键决策
+# ADR-0005：M3 报修工单增强方案的关键决策
 
 - 状态：提议（待组内评审）
 - 日期：2026-10-27
 - 决策者：M3 组（k）
 - 关联：`docs/m3/01-开源调研.md`、`docs/m3/02-需求规格.md`、`docs/m3/03-改造方案.md`
+- 依赖：ADR-0002（座位可用性模型）、ADR-0004（公共层归属）—— 均出自 M2 组 PR #1，尚未合并
+
+## 编号说明
+
+本 ADR 编号从 0002 跳至 0005。原因：M2 组已于 PR #1（`feat/m2-adr-baseline`，2026-10-21）占用 0002 / 0003 / 0004 三个编号（座位可用性模型、教室预约流程、公共层归属），且提出时间早于本文。为避免合并后编号重复引用混乱，M3 侧主动让号，取当前最大编号 +1。今后新增 ADR 按合并顺序取号，冲突时后来者让号。
 
 ## 背景
 
@@ -31,7 +36,21 @@ M3 模块在雏形阶段已实现「上报→派单→开工→完工→验收�
 ### 决策 3：座位下架/恢复增加「座位粒度」，以新增方法实现而非改造既有方法
 
 - **理由**：既有 `setMaintenance(spaceId, ...)` 被 M3 现网逻辑与测试依赖，直接改签名会破坏契约。新增 `setSeatMaintenance(seatId, ...)` / `restoreSeatAfterMaintenance(seatId, ...)`，内部复用同一套 `apply()` 与 `SeatStatusLog` 写入，保证来源标记一致。
-- **影响面**：属公共层变更，需 M1 组确认（`SeatStateService` 归属 M1 组按 ADR-0001）。
+- **影响面**：属公共层变更。按 ADR-0004 的子域划分，`SeatStateService` 归 D2「空间与座位主数据」，owner 为 M1 组，需其确认方法签名。
+
+#### 与 M2 组 ADR-0002 的对齐
+
+M2 组 ADR-0002 提出把 `Seat` 的「物理状态」与「时段占用」分离：占用写入新的 `occupancies` 表，`SeatStateService` 收缩为「只处理物理状态（维修上下架）」。该 ADR 第 5 节明确写着 **「M3：不变」**，并把「M3 维修是否需要时段化」列为遗留问题、v1 不做。
+
+本文决策 3 与该方向完全兼容，且是其落地的必要补充：
+
+| 本 ADR | 与 ADR-0002 的关系 |
+|---|---|
+| 座位粒度维修下架写 `Seat.status='maintenance'` | 一致：维修是物理状态，不写 `occupancies` |
+| 新增 `setSeatMaintenance` / `restoreSeatAfterMaintenance` | 补充：ADR-0002 只把 `SeatStateService` 收缩到物理状态，未定义座位粒度入口 |
+| 挂起（`on_hold`）期间座位保持下架 | 一致：物理损坏未修复，不应因流程挂起而恢复可约 |
+
+**结论**：M3 不消费 `OccupancyService`，只依赖 `SeatStateService`；两方在 `Seat.status` 上的写权限归 D2，M3 通过方法调用而非直接改表。
 
 ### 决策 4：返工不新增状态，复用 `in_progress` + `reopenCount` 计数
 
