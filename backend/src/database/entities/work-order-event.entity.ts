@@ -13,7 +13,14 @@ export type WorkOrderEventType =
   | 'resumed' // 解除挂起
   | 'cancelled' // 取消
   | 'merged' // 合并到其它工单
-  | 'escalated'; // SLA 超时升级
+  | 'escalated' // SLA 超时升级
+  | 'commented' // 工单留言
+  | 'eta_updated' // 更新预计恢复时间
+  | 'appealed' // 维修员申诉
+  | 'appeal_resolved' // 申诉裁决
+  | 'warned' // SLA 即将超时预警
+  | 'revisited' // 低分回访已处理
+  | 'seats_released'; // 座位释放记录（部分下架回滚）
 
 /**
  * 工单事件（M3 时间线 / 追溯）。

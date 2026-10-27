@@ -63,9 +63,13 @@ export class WorkOrder {
   @Column({ default: 0 })
   escalateLevel: number;
 
-  /** SLA 截止时间，超过未完工则升级 */
+  /** 解决时限（SLA）：超过未完工则升级 */
   @Column({ type: 'datetime', nullable: true })
   slaDeadline: Date | null;
+
+  /** 首次响应时限：工单被接单（开工）的最后时刻，与 slaDeadline 构成双时限考核 */
+  @Column({ type: 'datetime', nullable: true })
+  responseDeadline: Date | null;
 
   @Column({ type: 'datetime', nullable: true })
   dispatchedAt: Date | null;
@@ -96,6 +100,50 @@ export class WorkOrder {
   /** 是否处于 SLA 超时升级待处理状态（派单员在升级列表中处理） */
   @Column({ default: false })
   escalated: boolean;
+
+  /** 本次下架的座位 id 清单（JSON 数组）；恢复时据此精确回滚，支持部分下架 */
+  @Column({ default: '' })
+  seatIds: string;
+
+  /** 预计恢复时间：告知报修人，可展示在 M1 座位卡片上 */
+  @Column({ type: 'datetime', nullable: true })
+  etaAt: Date | null;
+
+  /** 现场照片 URL 列表（JSON 数组，最多 3 张） */
+  @Column({ default: '' })
+  photoUrls: string;
+
+  /** 维修员申诉理由（对验收不通过有异议时提出） */
+  @Column({ default: '' })
+  appealReason: string;
+
+  @Column({ type: 'datetime', nullable: true })
+  appealAt: Date | null;
+
+  /** 申诉裁决：upheld=维持返工（报修人意见成立） overturned=推翻返工（维修员有理） */
+  @Column({ type: 'varchar', nullable: true })
+  appealResult: 'upheld' | 'overturned' | null;
+
+  @Column({ type: 'int', nullable: true })
+  appealHandledBy: number | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  appealHandledAt: Date | null;
+
+  /** 低分（≤2 星）自动回访标记 */
+  @Column({ default: false })
+  revisitRequired: boolean;
+
+  @Column({ default: false })
+  revisitHandled: boolean;
+
+  /** SLA 超时预警是否已发送，避免重复提醒 */
+  @Column({ default: false })
+  slaWarned: boolean;
+
+  /** 疑似设备老化：同空间同分类故障在窗口期内反复发生 */
+  @Column({ default: false })
+  degradedSuspected: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

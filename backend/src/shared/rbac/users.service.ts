@@ -44,6 +44,36 @@ export class UsersService {
     return { ...user, roleCodes, permissionCodes };
   }
 
+  /**
+   * 按权限码反查在职用户。
+   *
+   * 用于「按职责找人」的场景，例如 M3 派单时需要列出所有具备
+   * workorder.handle 的维修员、M3 设备老化告警需要找派单员。
+   * 这些场景需要的是「人」，不是「当前登录用户的权限」，所以必须能反查。
+   */
+  async findByPermission(permissionCode: string): Promise<UserWithRoles[]> {
+    const rows = await this.repo
+      .createQueryBuilder('u')
+      .leftJoinAndSelect('u.roles', 'roles')
+      .leftJoinAndSelect('roles.permissions', 'perm')
+      .where('u.isActive = :active', { active: true })
+      .andWhere((qb) => {
+        const sub = qb
+          .subQuery()
+          .select('u2.id')
+          .from(User, 'u2')
+          .innerJoin('u2.roles', 'r2')
+          .innerJoin('r2.permissions', 'p2')
+          .where('p2.code = :code')
+          .getQuery();
+        return `u.id IN ${sub}`;
+      })
+      .setParameter('code', permissionCode)
+      .orderBy('u.id', 'ASC')
+      .getMany();
+    return rows.map((u) => this.decorate(u));
+  }
+
   async findAll(params: { keyword?: string; page?: number; pageSize?: number }) {
     const qb = this.repo.createQueryBuilder('u').leftJoinAndSelect('u.roles', 'roles');
     if (params.keyword) {
