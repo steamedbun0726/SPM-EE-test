@@ -257,6 +257,23 @@ describe('M1 自习座位预约（ReservationsService，sqljs 内存库）', () 
     await expect(
       service.bookSeat(USER1, { seatId: csSeats[0].id, date, startHour: 10, endHour: 12 }, { department: '数学学院' }),
     ).rejects.toThrow(ForbiddenException);
+
+    // 无部门上下文（如未识别院系的调用方）：院系空间不可见、不可预约；公共空间不受影响
+    const noDept = await service.searchSeats({ date, startHour: 10, endHour: 12 });
+    expect(noDept.filter((i) => i.spaceId === csSpace.id)).toHaveLength(0);
+    expect(noDept.filter((i) => i.spaceId === libSpace.id).length).toBeGreaterThan(0);
+    await expect(
+      service.bookSeat(USER1, { seatId: csSeats[1].id, date, startHour: 10, endHour: 12 }),
+    ).rejects.toThrow(ForbiddenException);
+
+    // 本系学生预约成功（放行断言）
+    const ok = await service.bookSeat(
+      USER1,
+      { seatId: csSeats[2].id, date, startHour: 10, endHour: 12 },
+      { department: '计算机学院' },
+    );
+    expect(ok.status).toBe('booked');
+    expect(ok.spaceId).toBe(csSpace.id);
   });
 
   it('取消：未开始的 booked 可取消，已开始的不可取消', async () => {
