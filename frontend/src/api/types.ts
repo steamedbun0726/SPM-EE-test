@@ -110,7 +110,15 @@ export interface ApplyRoomRequestParams {
 
 /* ===== M3 物业报修 ===== */
 
-export type WorkOrderStatus = 'reported' | 'dispatched' | 'in_progress' | 'completed' | 'accepted' | 'cancelled'
+export type WorkOrderStatus =
+  | 'reported'
+  | 'dispatched'
+  | 'in_progress'
+  | 'on_hold'
+  | 'completed'
+  | 'accepted'
+  | 'cancelled'
+  | 'merged'
 export type WorkOrderPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type WorkOrderTargetType = 'space' | 'seat' | 'other'
 
@@ -155,6 +163,31 @@ export interface WorkOrder {
   revisitHandled: boolean
   slaWarned: boolean
   degradedSuspected: boolean
+  /** 首响时刻（首次开工） */
+  firstRespondedAt: string | null
+  /** 原始解决时限：不随升级推后，统计 SLA 达标率用 */
+  originalSlaDeadline: string | null
+  /** 完工维修说明（M3-17，完工必填） */
+  resolutionNote: string
+  /** 挂起原因 */
+  holdReason: string
+  /** 挂起申请中（待派单员确认），此时状态与计时都不变 */
+  holdRequested: boolean
+  holdRequestedAt: string | null
+  holdRequestedBy: number | null
+  /** 挂起生效时刻，SLA 从此刻暂停 */
+  onHoldSince: string | null
+  /** 挂起前状态，恢复时还原 */
+  preHoldStatus: string
+  /** 累计挂起分钟数 */
+  totalHoldMinutes: number
+  /** 视图层实时累计（含进行中的挂起） */
+  holdMinutes: number
+  holdEscalated: boolean
+  /** 被合并方指向的主线工单 id */
+  mergedIntoId: number | null
+  /** 主线吸收的重复工单数 */
+  mergedCount: number
   /** 展示用标签（后端返回，避免前端重复维护字典） */
   categoryLabel: string
   priorityLabel: string
@@ -174,10 +207,13 @@ export type WorkOrderEventType =
   | 'completed'
   | 'accepted'
   | 'rejected'
+  | 'hold_requested'
+  | 'hold_rejected'
   | 'hold'
   | 'resumed'
   | 'cancelled'
   | 'merged'
+  | 'merge_absorbed'
   | 'escalated'
   | 'commented'
   | 'eta_updated'
@@ -242,6 +278,40 @@ export interface ReportWorkOrderParams {
   photoUrls?: string[]
   /** 预计恢复时间（ISO 字符串） */
   etaAt?: string
+  /** 合并到主线工单（同目标已存在未完结工单时由用户确认后带上） */
+  mergeIntoId?: number
+}
+
+/** 完工入参：维修说明必填（M3-17） */
+export interface CompleteWorkOrderParams {
+  resolutionNote: string
+  photoUrls?: string[]
+}
+
+/** 工单统计看板（M3-18）：每个比率的分母口径见 definitions */
+export interface WorkOrderStats {
+  range: { from: string; to: string }
+  totals: {
+    total: number
+    open: number
+    accepted: number
+    cancelled: number
+    merged: number
+    effective: number
+  }
+  byStatus: { status: WorkOrderStatus; name: string; count: number }[]
+  byCategory: { category: string; name: string; count: number; openCount: number }[]
+  byPriority: { priority: WorkOrderPriority; name: string; count: number }[]
+  kpi: {
+    completionRate: number | null
+    avgResponseHours: number | null
+    avgResolveHours: number | null
+    slaComplianceRate: number | null
+    reworkRate: number | null
+    avgRating: number | null
+  }
+  topSpaces: { spaceId: number; name: string; code: string; count: number; openCount: number }[]
+  definitions: Record<string, string>
 }
 
 /* ===== 公共数据（空间/座位） ===== */

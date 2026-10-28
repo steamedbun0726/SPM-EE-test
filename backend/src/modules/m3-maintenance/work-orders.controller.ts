@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -38,6 +39,8 @@ class ReportWorkOrderDto implements ReportWorkOrderInput {
   @IsOptional() @IsArray() @IsString({ each: true }) @ArrayMaxSize(3) photoUrls?: string[];
   /** 预计恢复时间（ISO 字符串） */
   @IsOptional() @IsString() etaAt?: string;
+  /** 合并到主线工单（M3-15）：同目标已存在未完结工单时，用户确认后带上此 id 重提 */
+  @IsOptional() @IsInt() mergeIntoId?: number;
 }
 
 class DispatchDto {
@@ -47,6 +50,26 @@ class DispatchDto {
 class ReassignDto {
   @IsInt() assigneeId: number;
   @IsOptional() @IsString() reason?: string;
+}
+
+/** 完工：维修说明必填（M3-17），服务层复核，DTO 层不给空串放行 */
+class CompleteDto {
+  @IsString() resolutionNote: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) @ArrayMaxSize(3) photoUrls?: string[];
+}
+
+class HoldDto {
+  @IsString() reason: string;
+}
+
+class HoldConfirmDto {
+  @IsIn([true, false]) approve: boolean;
+  @IsOptional() @IsString() note?: string;
+}
+
+class MergeDto {
+  /** 主线工单 id */
+  @IsInt() intoId: number;
 }
 
 class AcceptDto {
@@ -136,10 +159,70 @@ export class WorkOrdersController {
     return this.workOrdersService.toView(await this.workOrdersService.startWork(id, user.userId, user.name));
   }
 
+  /** 完工：维修说明必填（M3-17），可选补传现场照片 */
   @Post(':id/complete')
   @Permissions('workorder.handle')
-  async complete(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtUser) {
-    return this.workOrdersService.toView(await this.workOrdersService.complete(id, user.userId, user.name));
+  async complete(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: CompleteDto,
+  ) {
+    return this.workOrdersService.toView(
+      await this.workOrdersService.complete(
+        id,
+        user.userId,
+        { resolutionNote: dto.resolutionNote, photoUrls: dto.photoUrls },
+        user.name,
+      ),
+    );
+  }
+
+  // ===== 挂起与合并（M3-14 / M3-15） =====
+
+  /** 维修员申请挂起：此时状态与 SLA 都不变，等派单员确认 */
+  @Post(':id/hold')
+  @Permissions('workorder.handle')
+  async hold(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: HoldDto,
+  ) {
+    return this.workOrdersService.toView(
+      await this.workOrdersService.requestHold(id, user.userId, dto.reason, user.name),
+    );
+  }
+
+  /** 派单员确认/驳回挂起：确认后状态置 on_hold，SLA 暂停计时 */
+  @Post(':id/hold/confirm')
+  @Permissions('workorder.dispatch')
+  async confirmHold(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: HoldConfirmDto,
+  ) {
+    return this.workOrdersService.toView(
+      await this.workOrdersService.confirmHold(id, user.userId, dto.approve, user.name, dto.note),
+    );
+  }
+
+  /** 恢复维修：状态回到挂起前，两个时限按挂起时长顺延 */
+  @Post(':id/resume')
+  async resume(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtUser) {
+    return this.workOrdersService.toView(
+      await this.workOrdersService.resumeFromHold(id, user.userId, user.name, user.permissions),
+    );
+  }
+
+  /** 事后合并：把本单并入主线工单，座位恢复责任随之转移 */
+  @Post(':id/merge')
+  async merge(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtUser,
+    @Body() dto: MergeDto,
+  ) {
+    return this.workOrdersService.toView(
+      await this.workOrdersService.mergeInto(id, dto.intoId, user.userId, user.name, user.permissions),
+    );
   }
 
   /** 验收：默认通过；result=fail 时退回维修中返工（M3-10） */
@@ -280,6 +363,13 @@ export class WorkOrdersController {
     return this.workOrdersService.listDegraded();
   }
 
+  /** 挂起总览（M3-14）：待确认的挂起申请 + 正在挂起的工单 */
+  @Get('holds')
+  @Permissions('workorder.dispatch')
+  holds() {
+    return this.workOrdersService.listHoldOverview();
+  }
+
   @Get('assignments')
   assignments(@CurrentUser() user: JwtUser) {
     return this.workOrdersService.listAssignments(user.userId);
@@ -290,6 +380,24 @@ export class WorkOrdersController {
   @Permissions('workorder.stats')
   technicians() {
     return this.workOrdersService.technicianWorkload();
+  }
+
+  /**
+   * 工单统计看板（M3-18）。
+   * 默认统计近 30 天；返回体自带 definitions 说明每个指标的分母口径。
+   */
+  @Get('stats')
+  @Permissions('workorder.stats')
+  stats(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('spaceId') spaceId?: string,
+  ) {
+    const parsedSpaceId = spaceId != null && spaceId !== '' ? Number(spaceId) : undefined;
+    if (parsedSpaceId != null && !Number.isInteger(parsedSpaceId)) {
+      throw new BadRequestException('spaceId 必须为整数');
+    }
+    return this.workOrdersService.stats({ from, to, spaceId: parsedSpaceId });
   }
 
   @Get(':id')

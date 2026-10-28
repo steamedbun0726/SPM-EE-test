@@ -32,9 +32,11 @@ const fallback: WorkOrderMeta = {
     { code: 'reported', name: '待派单' },
     { code: 'dispatched', name: '已派单' },
     { code: 'in_progress', name: '维修中' },
+    { code: 'on_hold', name: '已挂起' },
     { code: 'completed', name: '待验收' },
     { code: 'accepted', name: '已完成' },
     { code: 'cancelled', name: '已取消' },
+    { code: 'merged', name: '已合并' },
   ],
   limits: { maxPhotos: 3, maxReopen: 3, maxAppeal: 2, etaMaxDays: 30, commentMaxLength: 500 },
 }

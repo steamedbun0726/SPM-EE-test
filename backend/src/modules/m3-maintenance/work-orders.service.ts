@@ -12,6 +12,7 @@ import {
   WorkOrderPriority,
   WorkOrderStatus,
   WorkOrderTargetType,
+  OPEN_WORK_ORDER_STATUSES,
 } from '../../database/entities/work-order.entity';
 import { WorkOrderEvent, WorkOrderEventType } from '../../database/entities/work-order-event.entity';
 import { Seat } from '../../database/entities/seat.entity';
@@ -25,6 +26,7 @@ import {
   PRIORITY_CODES,
   PRIORITY_LABEL,
   PRIORITY_WEIGHT,
+  STATUS_CODES,
   WORK_ORDER_CATEGORIES,
   categoryName,
   isCategoryCode,
@@ -48,6 +50,11 @@ export interface ReportWorkOrderInput {
   photoUrls?: string[];
   /** 预计恢复时间（ISO 字符串） */
   etaAt?: string;
+  /**
+   * 合并到主线工单（M3-15）：同目标已存在未完结工单、且报修人确认「这是同一个故障」时提交。
+   * 提交后本单直接落为 merged，不产生新的座位下架。
+   */
+  mergeIntoId?: number;
 }
 
 export interface AcceptWorkOrderInput {
@@ -55,6 +62,13 @@ export interface AcceptWorkOrderInput {
   result?: 'pass' | 'fail';
   rating?: number;
   comment?: string;
+}
+
+export interface CompleteWorkOrderInput {
+  /** 维修说明（必填）：故障原因 + 处理方式，报修人验收时可见 */
+  resolutionNote?: string;
+  /** 完工现场照片（可选，与已有照片合并后仍不超过上限） */
+  photoUrls?: string[];
 }
 
 /** 工单视图：实体 + 解析后的字段 + 展示用标签与 SLA 进度 */
@@ -68,6 +82,61 @@ export interface WorkOrderView extends WorkOrder {
   slaRemainMs: number | null;
   /** 解决时限已消耗比例 0-1（超时为 1） */
   slaUsedRatio: number | null;
+  /** 累计挂起分钟数（含正在进行中的挂起，实时计算） */
+  holdMinutes: number;
+}
+
+/** 统计看板查询条件（M3-18） */
+export interface WorkOrderStatsQuery {
+  /** 起始日期（含），默认近 30 天 */
+  from?: string;
+  /** 结束日期（不含），默认现在 */
+  to?: string;
+  /** 只看某个空间 */
+  spaceId?: number;
+}
+
+/**
+ * 统计看板（M3-18）。
+ *
+ * 每个比率都把**分母**一并写进 definitions 随数据返回：
+ * 同一份数据换个分母就能得出完全相反的结论，口径不能只写在文档里。
+ */
+export interface WorkOrderStats {
+  range: { from: string; to: string };
+  totals: {
+    /** 区间内上报的工单总数（含被合并单与被取消单） */
+    total: number;
+    /** 当前仍未完结（reported/dispatched/in_progress/on_hold） */
+    open: number;
+    /** 已验收 */
+    accepted: number;
+    /** 已取消 */
+    cancelled: number;
+    /** 已合并进其它工单 */
+    merged: number;
+    /** 其中参与比率计算的有效工单数（total - cancelled - merged） */
+    effective: number;
+  };
+  byStatus: Array<{ status: string; name: string; count: number }>;
+  byCategory: Array<{ category: string; name: string; count: number; openCount: number }>;
+  byPriority: Array<{ priority: string; name: string; count: number }>;
+  kpi: {
+    /** 完工率 = accepted / effective */
+    completionRate: number | null;
+    /** 平均首响时长（小时）= mean(firstRespondedAt - createdAt) */
+    avgResponseHours: number | null;
+    /** 平均解决时长（小时）= mean(acceptedAt - createdAt - 挂起时长) */
+    avgResolveHours: number | null;
+    /** SLA 达标率 = accepted 中 acceptedAt ≤ originalSlaDeadline 的占比 */
+    slaComplianceRate: number | null;
+    /** 返工率 = accepted 中 reopenCount > 0 的占比 */
+    reworkRate: number | null;
+    /** 验收平均分（1-5） */
+    avgRating: number | null;
+  };
+  topSpaces: Array<{ spaceId: number; name: string; code: string; count: number; openCount: number }>;
+  definitions: Record<string, string>;
 }
 
 /** 维修员负载（派单参考，M3-26） */
@@ -202,6 +271,14 @@ export class WorkOrdersService {
     }
   }
 
+  /** 累计挂起分钟数，含正在进行中的那一段（列表展示「已挂起 3 小时」需要实时值） */
+  private holdMinutesOf(wo: WorkOrder): number {
+    const base = wo.totalHoldMinutes ?? 0;
+    if (wo.status !== 'on_hold' || !wo.onHoldSince) return base;
+    const ongoing = Math.max(0, Math.floor((Date.now() - new Date(wo.onHoldSince).getTime()) / 60_000));
+    return base + ongoing;
+  }
+
   /** 实体 → 视图：解析 JSON 字段、补展示标签、算 SLA 进度 */
   toView(wo: WorkOrder): WorkOrderView {
     const now = Date.now();
@@ -212,7 +289,9 @@ export class WorkOrdersService {
     if (deadline != null) {
       slaRemainMs = deadline - now;
       const total = deadline - created;
-      slaUsedRatio = total > 0 ? Math.min(1, Math.max(0, (now - created) / total)) : 1;
+      // 挂起期间不消耗 SLA：比例按「已用时长 - 挂起时长」算，否则挂起越久进度条越满
+      const heldMs = this.holdMinutesOf(wo) * 60_000;
+      slaUsedRatio = total > 0 ? Math.min(1, Math.max(0, (now - created - heldMs) / total)) : 1;
     }
     return {
       ...wo,
@@ -223,6 +302,7 @@ export class WorkOrdersService {
       statusLabel: statusLabel(wo.status),
       slaRemainMs,
       slaUsedRatio,
+      holdMinutes: this.holdMinutesOf(wo),
     };
   }
 
@@ -285,6 +365,11 @@ export class WorkOrdersService {
 
     // 误报治理（M3-30）：同对象已有未结工单 → 拒绝重复上报
     const target = await this.resolveTarget(input);
+    // 合并分支必须排在判重之前：否则用户按 409 提示带上 mergeIntoId 重提，
+    // 会被同一条判重规则再拦一次，形成死循环。
+    if (input.mergeIntoId != null) {
+      return this.reportAsMerge(userId, input, target, photoUrls, category, priority, operatorName);
+    }
     await this.assertNoDuplicateActive(userId, target.spaceId, target.seatIds, input.targetType, target.targetId);
     await this.assertReporterNotAbusive(userId);
 
@@ -292,6 +377,7 @@ export class WorkOrdersService {
     const slaHours = resolveSlaHours(category, priority);
     const responseRatio = await this.configService.getInt('WORKORDER_RESPONSE_RATIO_PERCENT', 25);
     const responseHours = resolveResponseHours(slaHours, responseRatio);
+    const slaDeadline = new Date(now.getTime() + slaHours * 3600_000);
 
     const draft = this.workOrderRepo.create({
       workOrderNo: await this.nextWorkOrderNo(now),
@@ -304,7 +390,9 @@ export class WorkOrdersService {
       targetId: input.targetId ?? null,
       spaceId: target.spaceId,
       status: 'reported',
-      slaDeadline: new Date(now.getTime() + slaHours * 3600_000),
+      slaDeadline,
+      // 两处写同一时刻：后续升级会推后 slaDeadline，统计仍以原始值为准
+      originalSlaDeadline: slaDeadline,
       responseDeadline: new Date(now.getTime() + responseHours * 3600_000),
       photoUrls: photoUrls.length ? JSON.stringify(photoUrls) : '',
       seatIds: target.seatIds.length ? JSON.stringify(target.seatIds) : '',
@@ -366,6 +454,105 @@ export class WorkOrdersService {
       return this.updateEta(wo.id, userId, input.etaAt, operatorName, ['workorder.report']);
     }
     return wo;
+  }
+
+  /**
+   * 重复工单合并（M3-15）：把本次上报直接挂到主线工单上，不再单独走一遍派工流程。
+   *
+   * 为什么不自动合并？「同房间另一个座位也坏了」和「同一个座位被重复上报」在数据上
+   * 长得几乎一样，机器判错的代价是把真实故障吞掉。所以只做「检出 + 建议」，
+   * 由报修人确认后才合并，判断权留在人手里。
+   */
+  private async reportAsMerge(
+    userId: number,
+    input: ReportWorkOrderInput,
+    target: { spaceId: number | null; targetId: number | null; seatIds: number[] },
+    photoUrls: string[],
+    category: string,
+    priority: WorkOrderPriority,
+    operatorName?: string,
+  ): Promise<WorkOrder> {
+    const main = await this.findById(input.mergeIntoId as number);
+    if (!OPEN_WORK_ORDER_STATUSES.includes(main.status)) {
+      throw new ConflictException(
+        `主线工单 ${main.workOrderNo} 已结束（${statusLabel(main.status)}），无法再合并，请单独上报`,
+      );
+    }
+    if (main.mergedIntoId != null) {
+      throw new BadRequestException('只能合并到主线工单，不能挂在已被合并的工单下');
+    }
+    if (main.spaceId != null && target.spaceId != null && main.spaceId !== target.spaceId) {
+      throw new BadRequestException('只能合并到同一空间的工单');
+    }
+
+    const now = new Date();
+    const draft = this.workOrderRepo.create({
+      workOrderNo: await this.nextWorkOrderNo(now),
+      reporterId: userId,
+      title: input.title.trim(),
+      description: input.description ?? '',
+      category,
+      priority,
+      targetType: input.targetType,
+      targetId: input.targetId ?? null,
+      spaceId: target.spaceId,
+      status: 'merged',
+      mergedIntoId: main.id,
+      // 合并单不独立计时：它没有自己的工期，SLA 由主线承担
+      slaDeadline: null,
+      originalSlaDeadline: null,
+      responseDeadline: null,
+      photoUrls: photoUrls.length ? JSON.stringify(photoUrls) : '',
+      seatIds: target.seatIds.length ? JSON.stringify(target.seatIds) : '',
+    });
+    let merged: WorkOrder;
+    try {
+      merged = await this.workOrderRepo.save(draft);
+    } catch (e) {
+      if (this.isUniqueViolation(e)) {
+        draft.workOrderNo = await this.nextWorkOrderNo(now);
+        merged = await this.workOrderRepo.save(draft);
+      } else {
+        throw e;
+      }
+    }
+
+    // 座位并集交给主线：主线验收时按清单恢复，被合并单不再单独触发任何座位动作。
+    // 正常情况下并集里不会出现新座位（真正重复的报修必然座位有交集），
+    // 一旦出现说明两次报修覆盖面不同，此时不下架但要让派单员知道。
+    const mainSeats = this.parseSeatIds(main.seatIds);
+    const extraSeats = target.seatIds.filter((id) => !mainSeats.includes(id));
+    main.seatIds = JSON.stringify([...new Set([...mainSeats, ...target.seatIds])]);
+    main.mergedCount = (main.mergedCount ?? 0) + 1;
+    const savedMain = await this.workOrderRepo.save(main);
+
+    await this.recordEvent(merged, {
+      type: 'merged',
+      operatorId: userId,
+      operatorName,
+      note: `合并进工单 ${main.workOrderNo}（${main.title}）`,
+      fromStatus: null,
+    });
+    await this.recordEvent(savedMain, {
+      type: 'merge_absorbed',
+      operatorId: userId,
+      operatorName,
+      note: `吸收重复上报 ${merged.workOrderNo}（${merged.title}），累计 ${savedMain.mergedCount} 条`,
+    });
+
+    await this.notificationsService.send(
+      userId,
+      'workorder',
+      '已合并到已有工单',
+      `您的这次上报与工单 ${main.workOrderNo}（${main.title}）属同一故障，已合并处理，无需重复跟进。维修进展请关注该工单。`,
+    );
+    if (extraSeats.length) {
+      await this.notifyManagers(
+        '合并后仍有座位未下架',
+        `工单 ${main.workOrderNo} 吸收了 ${merged.workOrderNo}，后者涉及 ${extraSeats.length} 个主线未覆盖的座位（${extraSeats.join(',')}）。按合并规则未自动下架，如确认受影响请手动下架。`,
+      );
+    }
+    return merged;
   }
 
   /** 照片校验（M3-28）：数量上限 + 协议白名单，防 javascript: 等注入 */
@@ -452,7 +639,8 @@ export class WorkOrdersService {
     const actives = await this.workOrderRepo.find({
       where: {
         spaceId,
-        status: In(['reported', 'dispatched', 'in_progress'] as WorkOrderStatus[]),
+        // on_hold 也算未完结：挂起期间同一故障不能再开一张新单
+        status: In(OPEN_WORK_ORDER_STATUSES),
       },
     });
     for (const other of actives) {
@@ -464,9 +652,15 @@ export class WorkOrdersService {
       if (!overlap) continue;
       // 单座位报修必须命中同一座位，避免"同房间另一个座位坏了"被误判重复
       if (targetType === 'seat' && other.targetType === 'seat' && other.targetId !== targetId) continue;
-      throw new ConflictException(
-        `该对象已有处理中的工单 ${other.workOrderNo}（${statusLabel(other.status)}），请勿重复上报`,
-      );
+      // 附上主线工单 id：前端据此提供「合并到该工单」入口，而不是只让用户干瞪眼
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        message: `该对象已有处理中的工单 ${other.workOrderNo}（${statusLabel(other.status)}），请勿重复上报；如为同一故障可选择合并。`,
+        existingWorkOrderId: other.id,
+        existingWorkOrderNo: other.workOrderNo,
+        existingWorkOrderStatus: other.status,
+      });
     }
   }
 
@@ -643,6 +837,8 @@ export class WorkOrdersService {
     }
     const now = new Date();
     wo.inProgressAt = now;
+    // 首响只记第一次：返工后重新开工不应把「响应慢」洗成「响应快」
+    if (!wo.firstRespondedAt) wo.firstRespondedAt = now;
     // 首响时限只用于考核，不阻断操作：超时也要能干活，但要留痕
     const lateHours =
       wo.responseDeadline && now > new Date(wo.responseDeadline)
@@ -664,13 +860,44 @@ export class WorkOrdersService {
     return saved;
   }
 
-  /** 完工：in_progress → completed。仅 assignee 本人可操作。 */
-  async complete(workOrderId: number, assigneeId: number, operatorName?: string): Promise<WorkOrder> {
+  /**
+   * 完工：in_progress → completed。仅 assignee 本人可操作。
+   *
+   * 维修说明（resolutionNote）在这里是**必填**。原因很实际：报修人验收时看到的
+   * 若只有一句「已修好」，既无法判断问题是否真的解决，也让事后追责无据可依。
+   * 强制写清楚「换了什么、为什么坏、后续注意事项」，验收才有意义。
+   */
+  async complete(
+    workOrderId: number,
+    assigneeId: number,
+    input: CompleteWorkOrderInput = {},
+    operatorName?: string,
+  ): Promise<WorkOrder> {
     const wo = await this.findById(workOrderId);
     this.assertAssignee(wo, assigneeId);
     if (wo.status !== 'in_progress') {
       throw new ConflictException(`工单状态为 ${wo.status}，仅 in_progress 状态可完工`);
     }
+    const resolutionNote = (input.resolutionNote ?? '').trim();
+    if (!resolutionNote) {
+      throw new BadRequestException('完工必须填写维修说明（说明故障原因与处理方式），便于上报人验收');
+    }
+    if (resolutionNote.length > 1000) {
+      throw new BadRequestException('维修说明不能超过 1000 字');
+    }
+
+    // 完工时可一并补传现场照片（与上报时的照片合并去重，仍受张数上限约束）
+    if (input.photoUrls?.length) {
+      const incoming = await this.normalizePhotos(input.photoUrls);
+      const merged = [...new Set([...this.parsePhotoUrls(wo.photoUrls), ...incoming])];
+      const maxPhotos = await this.configService.getInt('WORKORDER_MAX_PHOTOS', 3);
+      if (merged.length > maxPhotos) {
+        throw new BadRequestException(`现场照片最多 ${maxPhotos} 张`);
+      }
+      wo.photoUrls = merged.length ? JSON.stringify(merged) : '';
+    }
+
+    wo.resolutionNote = resolutionNote;
     wo.completedAt = new Date();
     wo.escalated = false; // 已完工，不再属于升级待处理
     const saved = await this.transition(wo, {
@@ -678,14 +905,280 @@ export class WorkOrdersService {
       toStatus: 'completed',
       operatorId: assigneeId,
       operatorName,
-      note: '维修完成，待验收',
+      note: resolutionNote,
     });
     await this.notificationsService.send(
       saved.reporterId,
       'workorder',
       '维修已完成，待您验收',
-      `工单 ${saved.workOrderNo}（${saved.title}）已维修完成，请到场确认后验收。`,
+      `工单 ${saved.workOrderNo}（${saved.title}）已维修完成，请到场确认后验收。维修说明：${resolutionNote.slice(0, 100)}`,
     );
+    return saved;
+  }
+
+  // ===== 挂起与恢复（M3-14） =====
+
+  /**
+   * 维修员申请挂起（第一步）。
+   *
+   * 关键设计：申请时**不改状态、不停表**。挂起的本质是「我要暂停 SLA 考核」，
+   * 如果维修员一按按钮就停表，那 SLA 制度就退化成自证豁免；
+   * 必须由派单员确认，才轮到时钟暂停。
+   */
+  async requestHold(
+    workOrderId: number,
+    assigneeId: number,
+    reason: string,
+    operatorName?: string,
+  ): Promise<WorkOrder> {
+    const wo = await this.findById(workOrderId);
+    this.assertAssignee(wo, assigneeId);
+    if (wo.status !== 'dispatched' && wo.status !== 'in_progress') {
+      throw new ConflictException(`工单状态为 ${wo.status}，仅已派单/维修中可申请挂起`);
+    }
+    if (wo.holdRequested) {
+      throw new ConflictException('已有待确认的挂起申请，请等待派单员处理');
+    }
+    const text = (reason ?? '').trim();
+    if (!text) throw new BadRequestException('挂起必须填写原因（如：等厂家配件、需停电作业）');
+    if (text.length > 200) throw new BadRequestException('挂起原因不能超过 200 字');
+
+    wo.holdReason = text;
+    wo.holdRequested = true;
+    wo.holdRequestedAt = new Date();
+    wo.holdRequestedBy = assigneeId;
+    const saved = await this.workOrderRepo.save(wo);
+    await this.recordEvent(saved, {
+      type: 'hold_requested',
+      operatorId: assigneeId,
+      operatorName,
+      note: `申请挂起：${text}`,
+    });
+    await this.notifyManagers(
+      '挂起申请待确认',
+      `工单 ${saved.workOrderNo}（${saved.title}）维修员申请挂起：${text}。确认后 SLA 计时暂停。`,
+    );
+    return saved;
+  }
+
+  /**
+   * 派单员确认/驳回挂起申请（第二步）。
+   *
+   * 同意后：状态置 on_hold，记录 onHoldSince，SLA 从此刻起暂停；
+   * 座位**保持下架**（故障没修好，不能因为流程暂停就放回可预约池）。
+   */
+  async confirmHold(
+    workOrderId: number,
+    handlerId: number,
+    approve: boolean,
+    handlerName?: string,
+    note?: string,
+  ): Promise<WorkOrder> {
+    const wo = await this.findById(workOrderId);
+    if (!wo.holdRequested) {
+      throw new ConflictException('该工单没有待确认的挂起申请');
+    }
+    if (wo.status !== 'dispatched' && wo.status !== 'in_progress') {
+      throw new ConflictException(`工单状态为 ${wo.status}，当前不可挂起`);
+    }
+
+    if (!approve) {
+      wo.holdRequested = false;
+      wo.holdRequestedAt = null;
+      wo.holdRequestedBy = null;
+      const saved = await this.workOrderRepo.save(wo);
+      await this.recordEvent(saved, {
+        type: 'hold_rejected',
+        operatorId: handlerId,
+        operatorName: handlerName,
+        note: `挂起申请驳回${note ? `：${note}` : ''}`,
+      });
+      if (saved.assigneeId != null) {
+        await this.notificationsService.send(
+          saved.assigneeId,
+          'workorder',
+          '挂起申请未通过',
+          `工单 ${saved.workOrderNo} 的挂起申请未通过${note ? `，原因：${note}` : ''}，请按原时限继续处理。`,
+        );
+      }
+      return saved;
+    }
+
+    const now = new Date();
+    wo.preHoldStatus = wo.status;
+    wo.onHoldSince = now;
+    wo.holdRequested = false;
+    wo.holdEscalated = false;
+    const saved = await this.transition(wo, {
+      type: 'hold',
+      toStatus: 'on_hold',
+      operatorId: handlerId,
+      operatorName: handlerName,
+      note: `挂起生效：${wo.holdReason}${note ? `；${note}` : ''}`,
+    });
+
+    if (saved.assigneeId != null) {
+      await this.notificationsService.send(
+        saved.assigneeId,
+        'workorder',
+        '挂起已生效',
+        `工单 ${saved.workOrderNo} 已挂起，SLA 计时暂停。原因：${saved.holdReason}。恢复处理后请及时点击「恢复」。`,
+      );
+    }
+    await this.notificationsService.send(
+      saved.reporterId,
+      'workorder',
+      '维修进度：暂时挂起',
+      `您的报修工单 ${saved.workOrderNo}（${saved.title}）因「${saved.holdReason}」暂时挂起，维修时限相应顺延。如急需处理请联系物业说明情况。`,
+    );
+    return saved;
+  }
+
+  /**
+   * 恢复维修（第三步）：状态回到挂起前，两个时限按挂起时长整体顺延。
+   *
+   * 顺延而不是重算：重算会凭空多出一段工期，等于挂起一次奖励一段时间。
+   * 同时更新 originalSlaDeadline，保证事后统计 SLA 达标率时不会把挂起算成超时。
+   */
+  async resumeFromHold(
+    workOrderId: number,
+    operatorId: number,
+    operatorName?: string,
+    privileges: string[] = [],
+  ): Promise<WorkOrder> {
+    const wo = await this.findById(workOrderId);
+    if (wo.status !== 'on_hold' || !wo.onHoldSince) {
+      throw new ConflictException(`工单状态为 ${wo.status}，仅已挂起状态可恢复`);
+    }
+    const isManager =
+      privileges.includes('workorder.dispatch') || privileges.includes('workorder.manage');
+    if (wo.assigneeId !== operatorId && !isManager) {
+      throw new ForbiddenException('仅该工单维修员或派单员可恢复维修');
+    }
+
+    const now = new Date();
+    const holdMs = Math.max(0, now.getTime() - new Date(wo.onHoldSince).getTime());
+    const holdMinutes = Math.round(holdMs / 60_000);
+    wo.totalHoldMinutes = (wo.totalHoldMinutes ?? 0) + holdMinutes;
+    if (wo.slaDeadline) wo.slaDeadline = new Date(new Date(wo.slaDeadline).getTime() + holdMs);
+    if (wo.originalSlaDeadline) {
+      wo.originalSlaDeadline = new Date(new Date(wo.originalSlaDeadline).getTime() + holdMs);
+    }
+    if (wo.responseDeadline) {
+      wo.responseDeadline = new Date(new Date(wo.responseDeadline).getTime() + holdMs);
+    }
+    const backTo: WorkOrderStatus =
+      wo.preHoldStatus === 'dispatched' ? 'dispatched' : 'in_progress';
+    wo.onHoldSince = null;
+    wo.preHoldStatus = '';
+    wo.holdEscalated = false;
+    wo.slaWarned = false; // 时限已变，允许重新预警
+
+    const holdHours = Math.max(1, Math.round(holdMinutes / 60));
+    const totalHours = Math.round((wo.totalHoldMinutes ?? 0) / 60);
+    const saved = await this.transition(wo, {
+      type: 'resumed',
+      toStatus: backTo,
+      operatorId,
+      operatorName,
+      note: `恢复维修，本次挂起 ${holdHours} 小时，累计挂起 ${totalHours} 小时`,
+    });
+    await this.notificationsService.send(
+      saved.reporterId,
+      'workorder',
+      '维修已恢复',
+      `您的报修工单 ${saved.workOrderNo}（${saved.title}）已恢复处理，解决时限已按挂起时长顺延 ${holdHours} 小时。`,
+    );
+    return saved;
+  }
+
+  // ===== 事后合并（M3-15） =====
+
+  /**
+   * 把一张已存在的工单合并到主线。
+   *
+   * 与上报时直接合并的区别：这里是「两张单都已经开出来了，事后发现是同一件事」。
+   * 处置要点是**座位恢复责任转移**：被合并单名下的座位清单并入主线，
+   * 今后由主线的验收/取消来恢复；被合并单自己清空清单，避免它被单独操作时
+   * 把主线还在修的座位提前放出去。
+   */
+  async mergeInto(
+    workOrderId: number,
+    intoId: number,
+    operatorId: number,
+    operatorName?: string,
+    privileges: string[] = [],
+  ): Promise<WorkOrder> {
+    if (workOrderId === intoId) {
+      throw new BadRequestException('不能将工单合并到自身');
+    }
+    const wo = await this.findById(workOrderId);
+    const main = await this.findById(intoId);
+
+    const isManager =
+      privileges.includes('workorder.dispatch') || privileges.includes('workorder.manage');
+    if (wo.reporterId !== operatorId && !isManager) {
+      throw new ForbiddenException('仅上报人本人或派单员可合并工单');
+    }
+    if (!OPEN_WORK_ORDER_STATUSES.includes(wo.status)) {
+      throw new ConflictException(`工单 ${wo.workOrderNo} 已结束（${statusLabel(wo.status)}），无需合并`);
+    }
+    if (!OPEN_WORK_ORDER_STATUSES.includes(main.status)) {
+      throw new ConflictException(
+        `目标工单 ${main.workOrderNo} 已结束（${statusLabel(main.status)}），不能作为主线`,
+      );
+    }
+    if (main.mergedIntoId != null) {
+      throw new BadRequestException('目标工单自身已被合并，请合并到它的主线工单');
+    }
+    if (wo.spaceId != null && main.spaceId != null && wo.spaceId !== main.spaceId) {
+      throw new BadRequestException('只能合并同一空间的工单');
+    }
+
+    const mainSeats = this.parseSeatIds(main.seatIds);
+    const woSeats = this.parseSeatIds(wo.seatIds);
+    main.seatIds = JSON.stringify([...new Set([...mainSeats, ...woSeats])]);
+    main.mergedCount = (main.mergedCount ?? 0) + 1;
+    const savedMain = await this.workOrderRepo.save(main);
+
+    // 被合并单交出自己的座位清单与时限：它不再独立承担任何 SLA 与恢复义务
+    wo.seatIds = '';
+    wo.slaDeadline = null;
+    wo.responseDeadline = null;
+    wo.holdRequested = false;
+    wo.mergedIntoId = main.id;
+    const saved = await this.transition(wo, {
+      type: 'merged',
+      toStatus: 'merged',
+      operatorId,
+      operatorName,
+      note: `合并进工单 ${main.workOrderNo}（${main.title}）${
+        woSeats.length ? `；${woSeats.length} 个座位的恢复责任转移至主线` : ''
+      }`,
+    });
+    await this.recordEvent(savedMain, {
+      type: 'merge_absorbed',
+      operatorId,
+      operatorName,
+      note: `吸收工单 ${saved.workOrderNo}（${saved.title}），累计 ${savedMain.mergedCount} 条`,
+    });
+
+    if (saved.reporterId !== operatorId) {
+      await this.notificationsService.send(
+        saved.reporterId,
+        'workorder',
+        '您的工单已合并',
+        `工单 ${saved.workOrderNo}（${saved.title}）与 ${main.workOrderNo} 属同一故障，已合并处理，请关注 ${main.workOrderNo} 的进展。`,
+      );
+    }
+    if (saved.assigneeId != null && saved.assigneeId !== savedMain.assigneeId) {
+      await this.notificationsService.send(
+        saved.assigneeId,
+        'workorder',
+        '工单已合并，无需继续处理',
+        `工单 ${saved.workOrderNo} 已合并到 ${main.workOrderNo}，无需单独处理。`,
+      );
+    }
     return saved;
   }
 
@@ -1150,6 +1643,18 @@ export class WorkOrdersService {
     return this.toViewList(rows);
   }
 
+  /**
+   * 挂起总览（M3-14）：派单员一处看完「谁在申请挂起」与「哪些已经挂着」。
+   * 拆成两个数组而不是一个列表，因为两类要做的事完全不同：前者是审批，后者是催办。
+   */
+  async listHoldOverview(): Promise<{ requests: WorkOrderView[]; onHold: WorkOrderView[] }> {
+    const [requests, onHold] = await Promise.all([
+      this.workOrderRepo.find({ where: { holdRequested: true }, order: { id: 'ASC' } }),
+      this.workOrderRepo.find({ where: { status: 'on_hold' }, order: { id: 'ASC' } }),
+    ]);
+    return { requests: this.toViewList(requests), onHold: this.toViewList(onHold) };
+  }
+
   /** 处理低分回访：记录处置说明后关闭回访任务 */
   async handleRevisit(
     workOrderId: number,
@@ -1209,9 +1714,7 @@ export class WorkOrdersService {
         name: PRIORITY_LABEL[code],
         slaFactor: code === 'urgent' ? 0.3 : code === 'high' ? 0.6 : code === 'medium' ? 1 : 1.5,
       })),
-      statuses: ['reported', 'dispatched', 'in_progress', 'completed', 'accepted', 'cancelled'].map(
-        (code) => ({ code, name: statusLabel(code) }),
-      ),
+      statuses: STATUS_CODES.map((code) => ({ code, name: statusLabel(code) })),
       limits: {
         maxPhotos: 3,
         maxReopen: 3,
@@ -1284,6 +1787,159 @@ export class WorkOrdersService {
     });
   }
 
+  // ===== 统计看板（M3-18） =====
+
+  /**
+   * 工单统计看板。
+   *
+   * 口径是这个接口最容易出错的地方，所以把每条定义随数据一起返回（definitions），
+   * 前端直接展示，不给人「同一个数字两种解释」的空间。三个关键决定：
+   *
+   * 1. 完工率分母剔除 cancelled 与 merged —— 取消单和合并单不是「没修好」，
+   *    把它们算进分母等于惩罚合理操作；
+   * 2. 平均解决时长扣掉累计挂起时长 —— 挂起是客观停工（等配件），
+   *    算进作业效率会让「等了两周配件」的工单看起来像维修员手慢；
+   * 3. SLA 达标率用 originalSlaDeadline 而不是 slaDeadline —— 后者每次升级都会被推后，
+   *    用它算达标率，超时的单子全是「被升级过的」，结果虚高。
+   */
+  async stats(query: WorkOrderStatsQuery = {}): Promise<WorkOrderStats> {
+    const now = new Date();
+    const to = query.to ? new Date(query.to) : now;
+    if (Number.isNaN(to.getTime())) throw new BadRequestException('统计结束时间格式不合法');
+    const from = query.from ? new Date(query.from) : new Date(to.getTime() - 30 * 86400_000);
+    if (Number.isNaN(from.getTime())) throw new BadRequestException('统计起始时间格式不合法');
+    if (from.getTime() >= to.getTime()) throw new BadRequestException('起始时间必须早于结束时间');
+
+    const qb = this.workOrderRepo
+      .createQueryBuilder('w')
+      .where('w.createdAt >= :from AND w.createdAt < :to', { from, to });
+    if (query.spaceId != null) qb.andWhere('w.spaceId = :spaceId', { spaceId: query.spaceId });
+    const rows = await qb.getMany();
+
+    const t = (d: Date | string | null | undefined): number => (d ? new Date(d).getTime() : 0);
+    const mean = (list: number[]): number => list.reduce((a, b) => a + b, 0) / list.length;
+    const round1 = (v: number): number => Math.round(v * 10) / 10;
+    const pct = (num: number, den: number): number | null =>
+      den > 0 ? round1((num / den) * 100) : null;
+
+    const accepted = rows.filter((r) => r.status === 'accepted');
+    const cancelled = rows.filter((r) => r.status === 'cancelled');
+    const merged = rows.filter((r) => r.status === 'merged');
+    const effective = rows.length - cancelled.length - merged.length;
+    const open = rows.filter((r) => OPEN_WORK_ORDER_STATUSES.includes(r.status)).length;
+
+    // 首响：以首次开工时刻为准（返工不重算）
+    const responded = rows.filter((r) => r.firstRespondedAt);
+    const avgResponseHours = responded.length
+      ? round1(mean(responded.map((r) => (t(r.firstRespondedAt) - t(r.createdAt)) / 3600_000)))
+      : null;
+
+    // 解决：扣挂起时长
+    const resolved = accepted.filter((r) => r.acceptedAt);
+    const avgResolveHours = resolved.length
+      ? round1(
+          Math.max(
+            0,
+            mean(
+              resolved.map(
+                (r) =>
+                  (t(r.acceptedAt) - t(r.createdAt) - (r.totalHoldMinutes ?? 0) * 60_000) / 3600_000,
+              ),
+            ),
+          ),
+        )
+      : null;
+
+    // SLA 达标：原始时限优先，老数据回退到 slaDeadline
+    const slaComparable = accepted.filter(
+      (r) => r.acceptedAt && (r.originalSlaDeadline ?? r.slaDeadline),
+    );
+    const slaOk = slaComparable.filter(
+      (r) => t(r.acceptedAt) <= t(r.originalSlaDeadline ?? r.slaDeadline),
+    );
+
+    const rated = accepted.filter((r) => r.rating != null);
+
+    // 分组统计
+    const byStatus = STATUS_CODES.map((code) => ({
+      status: code,
+      name: statusLabel(code),
+      count: rows.filter((r) => r.status === code).length,
+    })).filter((x) => x.count > 0);
+
+    const categoryCodes = [...new Set(rows.map((r) => r.category))];
+    const byCategory = categoryCodes
+      .map((code) => ({
+        category: code,
+        name: categoryName(code),
+        count: rows.filter((r) => r.category === code).length,
+        openCount: rows.filter(
+          (r) => r.category === code && OPEN_WORK_ORDER_STATUSES.includes(r.status),
+        ).length,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    const byPriority = PRIORITY_CODES.map((code) => ({
+      priority: code,
+      name: PRIORITY_LABEL[code],
+      count: rows.filter((r) => r.priority === code).length,
+    })).filter((x) => x.count > 0);
+
+    // 空间故障排行
+    const spaceIds = [...new Set(rows.map((r) => r.spaceId).filter((v): v is number => v != null))];
+    const spaces = spaceIds.length ? await this.spaceRepo.findBy({ id: In(spaceIds) }) : [];
+    const spaceMap = new Map(spaces.map((s) => [s.id, s]));
+    const topSpaces = spaceIds
+      .map((id) => {
+        const list = rows.filter((r) => r.spaceId === id);
+        return {
+          spaceId: id,
+          name: spaceMap.get(id)?.name ?? `空间 ${id}`,
+          code: spaceMap.get(id)?.code ?? '',
+          count: list.length,
+          openCount: list.filter((r) => OPEN_WORK_ORDER_STATUSES.includes(r.status)).length,
+        };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    return {
+      range: { from: from.toISOString(), to: to.toISOString() },
+      totals: {
+        total: rows.length,
+        open,
+        accepted: accepted.length,
+        cancelled: cancelled.length,
+        merged: merged.length,
+        effective,
+      },
+      byStatus,
+      byCategory,
+      byPriority,
+      kpi: {
+        completionRate: pct(accepted.length, effective),
+        avgResponseHours,
+        avgResolveHours,
+        slaComplianceRate: pct(slaOk.length, slaComparable.length),
+        reworkRate: pct(accepted.filter((r) => r.reopenCount > 0).length, accepted.length),
+        avgRating: rated.length ? round1(mean(rated.map((r) => r.rating as number))) : null,
+      },
+      topSpaces,
+      definitions: {
+        total: '区间内上报的工单总数（按上报时间落入区间统计），含已取消与被合并单',
+        effective: '参与比率计算的有效工单数 = total − cancelled − merged',
+        completionRate: '完工率(%) = 已验收 ÷ 有效工单；取消单与合并单不计入分母',
+        avgResponseHours: '平均首响时长(小时) = 平均(首次开工时刻 − 上报时刻)，仅统计已开工工单',
+        avgResolveHours:
+          '平均解决时长(小时) = 平均(验收时刻 − 上报时刻 − 累计挂起时长)；挂起属客观停工，不计入作业时长',
+        slaComplianceRate:
+          'SLA 达标率(%) = 已验收工单中「验收时刻 ≤ 原始解决时限」的占比；原始时限不随升级推后、随挂起顺延',
+        reworkRate: '返工率(%) = 已验收工单中返工次数 > 0 的占比',
+        avgRating: '验收平均分(1-5)，仅统计有评分的工单',
+      },
+    };
+  }
+
   // ===== 定时任务 =====
 
   /**
@@ -1310,6 +1966,12 @@ export class WorkOrdersService {
       wo.escalateLevel += 1;
       wo.escalated = true;
       wo.slaDeadline = new Date(now.getTime() + escalateHours * 3600_000);
+      // 首响时限也必须一起推后，否则下一轮调度会立刻重新命中
+      // `{status:'reported', responseDeadline < now}` 这条条件，
+      // 结果是每跑一轮 escalateLevel +1 并再发一遍通知（实测线上已累加到 113 级）。
+      if (wo.responseDeadline && new Date(wo.responseDeadline).getTime() < now.getTime()) {
+        wo.responseDeadline = new Date(now.getTime() + escalateHours * 3600_000);
+      }
       wo.slaWarned = false; // 新的时限窗口，预警重置
       const saved = await this.workOrderRepo.save(wo);
       await this.notificationsService.send(
@@ -1327,6 +1989,39 @@ export class WorkOrdersService {
       });
       count++;
     }
+    // 挂起超期兜底（M3-14 验收 4）：挂起等于「合法停摆」，但不能无限停。
+    // 超过上限仍未恢复，说明配件/协调环节出了问题，必须升级到人，而不是让单子安静地烂在状态里。
+    const holdMaxDays = await this.configService.getInt('WORKORDER_HOLD_MAX_DAYS', 7);
+    const holdCutoff = new Date(now.getTime() - holdMaxDays * 86400_000);
+    const staleHolds = await this.workOrderRepo.find({
+      where: { status: 'on_hold', holdEscalated: false, onHoldSince: LessThan(holdCutoff) },
+    });
+    for (const wo of staleHolds) {
+      const heldDays = Math.floor(
+        (now.getTime() - new Date(wo.onHoldSince as Date).getTime()) / 86400_000,
+      );
+      wo.escalateLevel += 1;
+      wo.escalated = true;
+      wo.holdEscalated = true; // 只告警一次，避免每轮定时任务重复轰炸
+      const saved = await this.workOrderRepo.save(wo);
+      await this.recordEvent(saved, {
+        type: 'escalated',
+        operatorId: null,
+        note: `挂起已持续 ${heldDays} 天（上限 ${holdMaxDays} 天），自动升级`,
+      });
+      await this.notifyManagers(
+        '挂起超期',
+        `工单 ${saved.workOrderNo}（${saved.title}）已挂起 ${heldDays} 天（原因：${saved.holdReason || '未填写'}），超过上限 ${holdMaxDays} 天，请介入协调。`,
+      );
+      await this.notificationsService.send(
+        saved.reporterId,
+        'workorder',
+        '工单处理延迟说明',
+        `您的报修工单 ${saved.workOrderNo}（${saved.title}）因「${saved.holdReason || '客观原因'}」仍在等待，已升级至物业管理员协调处理。`,
+      );
+      count++;
+    }
+
     return count;
   }
 

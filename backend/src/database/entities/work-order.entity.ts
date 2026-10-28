@@ -5,9 +5,19 @@ export type WorkOrderStatus =
   | 'reported' // 已上报
   | 'dispatched' // 已派单
   | 'in_progress' // 维修中
+  | 'on_hold' // 已挂起（SLA 暂停计时，座位保持下架）
   | 'completed' // 完工待验收
   | 'accepted' // 验收通过（座位自动恢复）
-  | 'cancelled'; // 已取消
+  | 'cancelled' // 已取消
+  | 'merged'; // 已合并到主线工单（不产生独立下架/恢复）
+
+/** 未完结状态：参与重复上报判重、SLA 计时、升级扫描 */
+export const OPEN_WORK_ORDER_STATUSES: WorkOrderStatus[] = [
+  'reported',
+  'dispatched',
+  'in_progress',
+  'on_hold',
+];
 
 export type WorkOrderPriority = 'low' | 'medium' | 'high' | 'urgent';
 
@@ -70,6 +80,20 @@ export class WorkOrder {
   /** 首次响应时限：工单被接单（开工）的最后时刻，与 slaDeadline 构成双时限考核 */
   @Column({ type: 'datetime', nullable: true })
   responseDeadline: Date | null;
+
+  /**
+   * 原始解决时限：上报时按「分类基线 × 优先级系数」算出后**永不用于催促**的那一份。
+   *
+   * 为什么需要两份？slaDeadline 在每次超时升级时会被推后（+WORKORDER_ESCALATE_HOURS），
+   * 若直接拿它算 SLA 达标率，任何被升级过的工单都会显得"没有超时"。
+   * originalSlaDeadline 只在挂起顺延时同步平移，用于事后统计，口径才自洽。
+   */
+  @Column({ type: 'datetime', nullable: true })
+  originalSlaDeadline: Date | null;
+
+  /** 维修员实际接单（开工）时刻，首响时长的计算起点终点 */
+  @Column({ type: 'datetime', nullable: true })
+  firstRespondedAt: Date | null;
 
   @Column({ type: 'datetime', nullable: true })
   dispatchedAt: Date | null;
@@ -144,6 +168,54 @@ export class WorkOrder {
   /** 疑似设备老化：同空间同分类故障在窗口期内反复发生 */
   @Column({ default: false })
   degradedSuspected: boolean;
+
+  // ===== 挂起（M3-14） =====
+
+  /** 挂起原因，如「等厂家配件」「需停电作业」 */
+  @Column({ default: '' })
+  holdReason: string;
+
+  /** 维修员已提出挂起申请、等待派单员确认（此期间状态不变，SLA 照常计时） */
+  @Column({ default: false })
+  holdRequested: boolean;
+
+  @Column({ type: 'datetime', nullable: true })
+  holdRequestedAt: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  holdRequestedBy: number | null;
+
+  /** 挂起生效时刻；SLA 从这一刻起暂停计时 */
+  @Column({ type: 'datetime', nullable: true })
+  onHoldSince: Date | null;
+
+  /** 挂起前的状态（dispatched / in_progress），恢复时据此还原 */
+  @Column({ default: '' })
+  preHoldStatus: string;
+
+  /** 累计挂起分钟数：解决时长的统计口径要扣掉它 */
+  @Column({ default: 0 })
+  totalHoldMinutes: number;
+
+  /** 挂起超期升级是否已处理，避免定时任务每轮重复告警 */
+  @Column({ default: false })
+  holdEscalated: boolean;
+
+  // ===== 合并（M3-15） =====
+
+  /** 被合并方指向主线工单 id；主线该字段为空 */
+  @Column({ type: 'int', nullable: true })
+  mergedIntoId: number | null;
+
+  /** 主线工单累计吸收的重复工单数（展示用，避免每次 count 查询） */
+  @Column({ default: 0 })
+  mergedCount: number;
+
+  // ===== 维修记录（M3-17） =====
+
+  /** 完工维修说明：维修员必填，报修人验收时可见 */
+  @Column({ default: '' })
+  resolutionNote: string;
 
   @CreateDateColumn()
   createdAt: Date;

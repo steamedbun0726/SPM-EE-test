@@ -9,6 +9,7 @@ import { SharedModule } from '../src/shared/shared.module';
 import { InitSchema1780000000000 } from '../src/database/migrations/1780000000000-init-schema';
 import { M3WorkOrderEnhance1780000001000 } from '../src/database/migrations/1780000001000-m3-work-order-enhance';
 import { M3WorkOrderFields1780000002000 } from '../src/database/migrations/1780000002000-m3-work-order-fields';
+import { M3HoldMergeStats1780000003000 } from '../src/database/migrations/1780000003000-m3-hold-merge-stats';
 
 import { WorkOrder } from '../src/database/entities/work-order.entity';
 import { WorkOrderEvent } from '../src/database/entities/work-order-event.entity';
@@ -54,7 +55,7 @@ describe('M3 工单增强（一期）', () => {
             Notification, AuditLog, SystemConfig,
             WorkOrder, WorkOrderEvent,
           ],
-          migrations: [InitSchema1780000000000, M3WorkOrderEnhance1780000001000, M3WorkOrderFields1780000002000],
+          migrations: [InitSchema1780000000000, M3WorkOrderEnhance1780000001000, M3WorkOrderFields1780000002000, M3HoldMergeStats1780000003000],
         }),
         SharedModule,
         M3MaintenanceModule,
@@ -94,7 +95,7 @@ describe('M3 工单增强（一期）', () => {
     const wo = await service.report(1, { title: '灯管损坏', targetType: 'space', spaceId: space.id }, '张三');
     await service.dispatch(wo.id, 99, 1, '管理员');
     await service.startWork(wo.id, 99, '张师傅');
-    await service.complete(wo.id, 99, '张师傅');
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' }, '张师傅');
     await service.accept(wo.id, 1, { rating: 5 }, '张三');
 
     const events = await service.listEvents(wo.id);
@@ -154,7 +155,7 @@ describe('M3 工单增强（一期）', () => {
     await expect(service.reassign(wo.id, 99, 1)).rejects.toThrow(BadRequestException);
 
     await service.startWork(wo.id, 99);
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     await expect(service.reassign(wo.id, 100, 1)).rejects.toThrow(ConflictException);
   });
 
@@ -163,7 +164,7 @@ describe('M3 工单增强（一期）', () => {
     const wo = await service.report(1, { title: '空调故障', targetType: 'space', spaceId: space.id });
     await service.dispatch(wo.id, 99, 1);
     await service.startWork(wo.id, 99);
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
 
     const rejected = await service.accept(wo.id, 1, { result: 'fail', comment: '还是不出风' }, '张三');
     expect(rejected.status).toBe('in_progress');
@@ -182,7 +183,7 @@ describe('M3 工单增强（一期）', () => {
     expect(rejectedEvent!.note).toBe('还是不出风');
 
     // 重新完工并验收通过后，座位才恢复
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     const accepted = await service.accept(wo.id, 1, { rating: 4 });
     expect(accepted.status).toBe('accepted');
     expect(accepted.reopenCount).toBe(1);
@@ -197,13 +198,13 @@ describe('M3 工单增强（一期）', () => {
     // 默认上限 3 次
     await service.startWork(wo.id, 99);
     for (let i = 1; i <= 3; i++) {
-      await service.complete(wo.id, 99);
+      await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
       const r = await service.accept(wo.id, 1, { result: 'fail', comment: `第 ${i} 次不通过` });
       expect(r.status).toBe('in_progress'); // 返工后直接回到维修中
       expect(r.reopenCount).toBe(i);
     }
 
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     await expect(service.accept(wo.id, 1, { result: 'fail' })).rejects.toThrow(ConflictException);
 
     // 达到上限后仍可通过验收，避免工单永久卡死
@@ -247,7 +248,7 @@ describe('M3 工单增强（一期）', () => {
     // 完工也会清除
     await woRepo.update(w1.id, { escalated: true, slaDeadline: new Date(Date.now() - 3600_000) });
     await service.startWork(w1.id, 99);
-    const completed = await service.complete(w1.id, 99);
+    const completed = await service.complete(w1.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     expect(completed.escalated).toBe(false);
   });
 

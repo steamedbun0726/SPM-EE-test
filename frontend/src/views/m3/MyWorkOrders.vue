@@ -11,9 +11,11 @@ const statusMap: Record<WorkOrderStatus, { label: string; type: string }> = {
   reported: { label: '待派单', type: 'warning' },
   dispatched: { label: '已派单', type: 'primary' },
   in_progress: { label: '维修中', type: 'success' },
+  on_hold: { label: '已挂起', type: 'warning' },
   completed: { label: '待验收', type: 'warning' },
   accepted: { label: '已验收', type: 'success' },
   cancelled: { label: '已取消', type: 'info' },
+  merged: { label: '已合并', type: 'info' },
 }
 
 const targetTypeMap: Record<WorkOrderTargetType, string> = {
@@ -249,6 +251,21 @@ onMounted(() => {
         <el-descriptions-item label="升级层级">{{ detail.escalateLevel }}</el-descriptions-item>
         <el-descriptions-item label="SLA 截止" :span="2">{{ formatTime(detail.slaDeadline) }}</el-descriptions-item>
         <el-descriptions-item label="描述" :span="2">{{ detail.description || '-' }}</el-descriptions-item>
+        <el-descriptions-item v-if="detail.resolutionNote" label="维修说明" :span="2">
+          <span class="resolution-note">{{ detail.resolutionNote }}</span>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="detail.holdReason" label="挂起原因" :span="2">
+          {{ detail.holdReason }}
+          <span v-if="detail.totalHoldMinutes" class="muted">
+            （累计挂起 {{ Math.round(detail.totalHoldMinutes / 60) }} 小时，挂起期间不计入维修时限）
+          </span>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="detail.mergedIntoId" label="合并关系" :span="2">
+          本工单已合并至主线工单 ID {{ detail.mergedIntoId }}，请关注主线进展
+        </el-descriptions-item>
+        <el-descriptions-item v-if="detail.mergedCount" label="合并入本单" :span="2">
+          共吸收 {{ detail.mergedCount }} 条重复上报
+        </el-descriptions-item>
         <el-descriptions-item label="上报时间">{{ formatTime(detail.createdAt) }}</el-descriptions-item>
         <el-descriptions-item label="派单时间">{{ formatTime(detail.dispatchedAt) }}</el-descriptions-item>
         <el-descriptions-item label="开始维修">{{ formatTime(detail.inProgressAt) }}</el-descriptions-item>
@@ -289,5 +306,14 @@ onMounted(() => {
 
 .dialog-tip {
   margin-bottom: 16px;
+}
+
+.resolution-note {
+  color: #303133;
+  line-height: 1.6;
+}
+
+.muted {
+  color: #909399;
 }
 </style>

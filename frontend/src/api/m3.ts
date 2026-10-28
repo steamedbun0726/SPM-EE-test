@@ -1,10 +1,12 @@
 import http from './http'
 import type {
+  CompleteWorkOrderParams,
   ReportWorkOrderParams,
   TechnicianWorkload,
   WorkOrder,
   WorkOrderEvent,
   WorkOrderMeta,
+  WorkOrderStats,
 } from './types'
 
 /**
@@ -27,9 +29,33 @@ export function start(id: number): Promise<WorkOrder> {
   return http.post(`/m3/work-orders/${id}/start`).then((r) => r.data)
 }
 
-/** 完工待验收：POST /m3/work-orders/:id/complete（维修员本人） */
-export function complete(id: number): Promise<WorkOrder> {
-  return http.post(`/m3/work-orders/${id}/complete`).then((r) => r.data)
+/** 完工待验收：POST /m3/work-orders/:id/complete（维修员本人，维修说明必填） */
+export function complete(id: number, data: CompleteWorkOrderParams): Promise<WorkOrder> {
+  return http.post(`/m3/work-orders/${id}/complete`, data).then((r) => r.data)
+}
+
+/** 申请挂起：POST /m3/work-orders/:id/hold（维修员，状态与计时都不变，等派单员确认） */
+export function requestHold(id: number, reason: string): Promise<WorkOrder> {
+  return http.post(`/m3/work-orders/${id}/hold`, { reason }).then((r) => r.data)
+}
+
+/** 确认/驳回挂起：POST /m3/work-orders/:id/hold/confirm（权限 workorder.dispatch） */
+export function confirmHold(
+  id: number,
+  approve: boolean,
+  note?: string,
+): Promise<WorkOrder> {
+  return http.post(`/m3/work-orders/${id}/hold/confirm`, { approve, note }).then((r) => r.data)
+}
+
+/** 恢复维修：POST /m3/work-orders/:id/resume（时限按挂起时长顺延） */
+export function resume(id: number): Promise<WorkOrder> {
+  return http.post(`/m3/work-orders/${id}/resume`).then((r) => r.data)
+}
+
+/** 事后合并到主线：POST /m3/work-orders/:id/merge */
+export function mergeInto(id: number, intoId: number): Promise<WorkOrder> {
+  return http.post(`/m3/work-orders/${id}/merge`, { intoId }).then((r) => r.data)
 }
 
 /** 验收评价：POST /m3/work-orders/:id/accept（上报人），rating 1-5 */
@@ -131,7 +157,24 @@ export function degraded(): Promise<WorkOrder[]> {
   return http.get('/m3/work-orders/degraded').then((r) => r.data)
 }
 
+/** 挂起总览：GET /m3/work-orders/holds（权限 workorder.dispatch） */
+export function holds(): Promise<{ requests: WorkOrder[]; onHold: WorkOrder[] }> {
+  return http.get('/m3/work-orders/holds').then((r) => r.data)
+}
+
 /** 维修员负载与技能画像：GET /m3/work-orders/technicians（权限 workorder.stats） */
 export function technicians(): Promise<TechnicianWorkload[]> {
   return http.get('/m3/work-orders/technicians').then((r) => r.data)
+}
+
+/**
+ * 工单统计看板：GET /m3/work-orders/stats（权限 workorder.stats）
+ * 默认近 30 天；返回体自带 definitions 说明各指标分母口径。
+ */
+export function stats(params?: {
+  from?: string
+  to?: string
+  spaceId?: number
+}): Promise<WorkOrderStats> {
+  return http.get('/m3/work-orders/stats', { params }).then((r) => r.data)
 }

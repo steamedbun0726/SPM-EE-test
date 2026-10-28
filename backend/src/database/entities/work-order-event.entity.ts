@@ -9,10 +9,13 @@ export type WorkOrderEventType =
   | 'completed' // 完工
   | 'accepted' // 验收通过
   | 'rejected' // 验收不通过（返工）
-  | 'hold' // 挂起
-  | 'resumed' // 解除挂起
+  | 'hold_requested' // 维修员申请挂起（待派单员确认）
+  | 'hold_rejected' // 挂起申请被驳回
+  | 'hold' // 挂起生效（SLA 暂停）
+  | 'resumed' // 解除挂起（SLA 顺延）
   | 'cancelled' // 取消
-  | 'merged' // 合并到其它工单
+  | 'merged' // 本单被合并进其它工单
+  | 'merge_absorbed' // 本单作为主线吸收了其它工单
   | 'escalated' // SLA 超时升级
   | 'commented' // 工单留言
   | 'eta_updated' // 更新预计恢复时间

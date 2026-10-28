@@ -112,10 +112,31 @@ export const STATUS_LABEL: Record<string, string> = {
   reported: '待派单',
   dispatched: '已派单',
   in_progress: '维修中',
+  on_hold: '已挂起',
   completed: '待验收',
   accepted: '已完成',
   cancelled: '已取消',
+  merged: '已合并',
 };
+
+/** 全部状态码（含终态），用于字典接口与筛选器 */
+export const STATUS_CODES = [
+  'reported',
+  'dispatched',
+  'in_progress',
+  'on_hold',
+  'completed',
+  'accepted',
+  'cancelled',
+  'merged',
+];
+
+/** 终态：不再参与任何计时与升级扫描 */
+export const TERMINAL_STATUS_CODES = ['accepted', 'cancelled', 'merged'];
+
+export function isTerminalStatus(code: string): boolean {
+  return TERMINAL_STATUS_CODES.includes(code);
+}
 
 export function statusLabel(code: string): string {
   return STATUS_LABEL[code] ?? code;

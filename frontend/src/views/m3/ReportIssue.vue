@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import type { AxiosError } from 'axios'
 import { listSpaces, listSpaceSeats } from '@/api/admin'
 import { report } from '@/api/m3'
 import { useWorkOrderMeta } from '@/composables/useWorkOrderMeta'
@@ -114,6 +115,50 @@ function validatePhotos(): string[] {
   return urls
 }
 
+function buildPayload(): ReportWorkOrderParams {
+  const urls = validatePhotos()
+  const payload: ReportWorkOrderParams = {
+    title: form.title.trim(),
+    description: form.description.trim() || undefined,
+    category: form.category,
+    priority: form.priority,
+    targetType: form.targetType,
+  }
+  if (form.targetType === 'space') {
+    payload.targetId = form.spaceId
+    payload.spaceId = form.spaceId
+    // 只选了部分座位时按座位粒度下架，其余座位保持可约
+    if (partialOffline.value) payload.seatIds = [...form.offlineSeatIds]
+  } else if (form.targetType === 'seat') {
+    const seat = seatOptions.value.find((s) => s.id === form.seatId)
+    payload.targetId = form.seatId
+    payload.spaceId = seat?.spaceId ?? form.spaceId
+  } else {
+    const location = form.location.trim() ? `位置：${form.location.trim()}` : ''
+    payload.description = [location, payload.description ?? ''].filter(Boolean).join('\n') || undefined
+  }
+  if (urls.length) payload.photoUrls = urls
+  if (form.etaAt) payload.etaAt = new Date(form.etaAt).toISOString()
+  return payload
+}
+
+function resetForm() {
+  form.title = ''
+  form.description = ''
+  form.location = ''
+  form.seatId = undefined
+  form.offlineSeatIds = []
+  form.etaAt = ''
+  photoUrls.value = []
+}
+
+/** 后端判重返回体：带已有工单信息，供这里给出「合并」这条出路 */
+interface DuplicateBody {
+  message?: string
+  existingWorkOrderId?: number
+  existingWorkOrderNo?: string
+}
+
 async function submit() {
   if (!form.title.trim()) {
     ElMessage.warning('请填写标题')
@@ -141,31 +186,9 @@ async function submit() {
   const urls = validatePhotos()
   if (photoUrls.value.some((u) => u.trim()) && urls.length === 0) return
 
+  const payload = buildPayload()
   submitting.value = true
   try {
-    const payload: ReportWorkOrderParams = {
-      title: form.title.trim(),
-      description: form.description.trim() || undefined,
-      category: form.category,
-      priority: form.priority,
-      targetType: form.targetType,
-    }
-    if (form.targetType === 'space') {
-      payload.targetId = form.spaceId
-      payload.spaceId = form.spaceId
-      // 只选了部分座位时按座位粒度下架，其余座位保持可约
-      if (partialOffline.value) payload.seatIds = [...form.offlineSeatIds]
-    } else if (form.targetType === 'seat') {
-      const seat = seatOptions.value.find((s) => s.id === form.seatId)
-      payload.targetId = form.seatId
-      payload.spaceId = seat?.spaceId ?? form.spaceId
-    } else {
-      const location = form.location.trim() ? `位置：${form.location.trim()}` : ''
-      payload.description = [location, payload.description ?? ''].filter(Boolean).join('\n') || undefined
-    }
-    if (urls.length) payload.photoUrls = urls
-    if (form.etaAt) payload.etaAt = new Date(form.etaAt).toISOString()
-
     const created = await report(payload)
     const offline = created.seatIdList?.length ?? 0
     ElMessage.success(
@@ -173,15 +196,30 @@ async function submit() {
         ? `报修已提交（${created.workOrderNo}），${offline} 个座位已临时下架`
         : `报修已提交（${created.workOrderNo}）`,
     )
-    form.title = ''
-    form.description = ''
-    form.location = ''
-    form.seatId = undefined
-    form.offlineSeatIds = []
-    form.etaAt = ''
-    photoUrls.value = []
-  } catch {
-    /* 拦截器已统一提示 */
+    resetForm()
+  } catch (e) {
+    // 重复上报不是「用户做错了」，而是一个需要给出路的分岔口：
+    // 同一个故障 → 合并；不同故障 → 改描述重提。所以这里不问「要不要取消」，只问「是不是同一件事」。
+    const body = (e as AxiosError<DuplicateBody>).response?.data
+    if (!body?.existingWorkOrderId || !body.existingWorkOrderNo) return
+
+    try {
+      await ElMessageBox.confirm(
+        `该位置已有处理中的工单 ${body.existingWorkOrderNo}。如果这次上报的是同一个故障，可以合并到该工单，不再重复派工；如果是不同的故障，请修改标题或描述后再提交，便于维修员区分。`,
+        '发现重复工单',
+        { confirmButtonText: '合并到该工单', cancelButtonText: '不合并', type: 'warning' },
+      )
+    } catch {
+      return
+    }
+
+    try {
+      const merged = await report({ ...payload, mergeIntoId: body.existingWorkOrderId })
+      ElMessage.success(`已合并到工单 ${body.existingWorkOrderNo}（新单号 ${merged.workOrderNo}）`)
+      resetForm()
+    } catch {
+      /* 拦截器已统一提示 */
+    }
   } finally {
     submitting.value = false
   }

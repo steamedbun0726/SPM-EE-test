@@ -168,4 +168,5 @@ export const SYSTEM_CONFIGS: Array<{ key: string; value: string; description: st
   { key: 'WORKORDER_DEGRADE_THRESHOLD', value: '3', description: '窗口期内同空间同分类故障达该次数即标记疑似设备老化' },
   { key: 'WORKORDER_REPORT_WINDOW_DAYS', value: '7', description: '恶意误报限制的统计窗口（天）' },
   { key: 'WORKORDER_MAX_CANCEL_PER_WINDOW', value: '5', description: '窗口期内允许自行取消的工单数上限，超过则限制上报' },
+  { key: 'WORKORDER_HOLD_MAX_DAYS', value: '7', description: '挂起最长持续天数，超过仍未恢复则自动升级并通知派单员（M3-14）' },
 ];

@@ -10,6 +10,7 @@ import { SharedModule } from '../src/shared/shared.module';
 import { InitSchema1780000000000 } from '../src/database/migrations/1780000000000-init-schema';
 import { M3WorkOrderEnhance1780000001000 } from '../src/database/migrations/1780000001000-m3-work-order-enhance';
 import { M3WorkOrderFields1780000002000 } from '../src/database/migrations/1780000002000-m3-work-order-fields';
+import { M3HoldMergeStats1780000003000 } from '../src/database/migrations/1780000003000-m3-hold-merge-stats';
 
 import { WorkOrder } from '../src/database/entities/work-order.entity';
 import { WorkOrderEvent } from '../src/database/entities/work-order-event.entity';
@@ -67,6 +68,7 @@ describe('M3 工单协作与治理（二期）', () => {
             InitSchema1780000000000,
             M3WorkOrderEnhance1780000001000,
             M3WorkOrderFields1780000002000,
+            M3HoldMergeStats1780000003000,
           ],
         }),
         SharedModule,
@@ -136,7 +138,7 @@ describe('M3 工单协作与治理（二期）', () => {
 
     await service.dispatch(wo.id, 99, 1);
     await service.startWork(wo.id, 99);
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     await service.accept(wo.id, 1, { rating: 5 });
 
     const restored = await seatRepo.find({ where: { spaceId: space.id } });
@@ -338,7 +340,7 @@ describe('M3 工单协作与治理（二期）', () => {
     const wo = await service.report(1, { title: '插座无电', targetType: 'other' });
     await service.dispatch(wo.id, 99, 1);
     await service.startWork(wo.id, 99);
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     await service.accept(wo.id, 1, { result: 'fail', comment: '还是没电' });
 
     const appealed = await service.appeal(wo.id, 99, '已测量电压正常，怀疑是设备本身', '张师傅');
@@ -367,7 +369,7 @@ describe('M3 工单协作与治理（二期）', () => {
     });
     await service.dispatch(wo.id, 99, 1);
     await service.startWork(wo.id, 99);
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     await service.accept(wo.id, 1, { result: 'fail', comment: '还是卡' });
     await service.appeal(wo.id, 99, '已更换锁芯并测试 10 次正常');
 
@@ -386,7 +388,7 @@ describe('M3 工单协作与治理（二期）', () => {
     await service.startWork(wo.id, 99);
     await expect(service.appeal(wo.id, 99, '没修就申诉')).rejects.toThrow(ConflictException);
 
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     await expect(service.appeal(wo.id, 99, '还没验收就申诉')).rejects.toThrow(ConflictException);
     await service.accept(wo.id, 1, { result: 'fail', comment: '还滴' });
 
@@ -475,7 +477,7 @@ describe('M3 工单协作与治理（二期）', () => {
     const w1 = await service.report(1, { title: 'A', category: 'plumbing', targetType: 'other' });
     await service.dispatch(w1.id, worker.id, 1);
     await service.startWork(w1.id, worker.id);
-    await service.complete(w1.id, worker.id);
+    await service.complete(w1.id, worker.id, { resolutionNote: '已更换损坏部件并测试通过' });
     await service.accept(w1.id, 1, { rating: 5 });
 
     const w2 = await service.report(1, { title: 'B', category: 'plumbing', targetType: 'other' });
@@ -499,7 +501,7 @@ describe('M3 工单协作与治理（二期）', () => {
     const wo = await service.report(1, { title: '清洁未做', targetType: 'other' });
     await service.dispatch(wo.id, 99, 1);
     await service.startWork(wo.id, 99);
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     const accepted = await service.accept(wo.id, 1, { rating: 2, comment: '地面还是脏的' });
 
     expect(accepted.revisitRequired).toBe(true);
@@ -520,7 +522,7 @@ describe('M3 工单协作与治理（二期）', () => {
     const wo = await service.report(1, { title: '换灯管', targetType: 'other' });
     await service.dispatch(wo.id, 99, 1);
     await service.startWork(wo.id, 99);
-    await service.complete(wo.id, 99);
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' });
     const accepted = await service.accept(wo.id, 1, { rating: 5 });
     expect(accepted.revisitRequired).toBe(false);
   });
@@ -640,7 +642,7 @@ describe('M3 工单协作与治理（二期）', () => {
     await service.addComment(wo.id, 99, '今天下午到现场', '张师傅');
     await service.updateEta(wo.id, 99, new Date(Date.now() + 2 * 3600_000).toISOString(), '张师傅');
     await service.startWork(wo.id, 99, '张师傅');
-    await service.complete(wo.id, 99, '张师傅');
+    await service.complete(wo.id, 99, { resolutionNote: '已更换损坏部件并测试通过' }, '张师傅');
     const accepted = await service.accept(wo.id, 1, { rating: 4 }, '张三');
     expect(accepted.status).toBe('accepted');
 
