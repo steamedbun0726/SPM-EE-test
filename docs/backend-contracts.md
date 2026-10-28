@@ -203,8 +203,29 @@ GET   /api/m3/work-orders/technicians         → technicianWorkload（权限 wo
 GET   /api/m3/work-orders/:id/events          → listEvents（访问控制同详情）
 ```
 
+### v1.2 新增路由（三期：挂起 / 合并 / 统计）
+
+```
+POST  /api/m3/work-orders/:id/hold            → requestHold（权限 workorder.handle，仅指派维修员；body:{reason}）
+POST  /api/m3/work-orders/:id/hold/confirm    → confirmHold（权限 workorder.dispatch；body:{approve:boolean,note?}）
+POST  /api/m3/work-orders/:id/resume          → resumeFromHold（指派维修员或 workorder.dispatch/manage）
+POST  /api/m3/work-orders/:id/merge           → mergeInto（上报人本人或派单员；body:{intoId:number}）
+GET   /api/m3/work-orders/holds               → listHoldOverview（权限 workorder.dispatch，返回 {requests,onHold}）
+GET   /api/m3/work-orders/stats               → stats（权限 workorder.stats；query: from,to,spaceId）
+```
+
+**契约变更（破坏性）**：`POST /:id/complete` 自 v1.2 起要求 body 含 `resolutionNote`（非空字符串，≤1000 字），
+缺失或空白返回 400。`photoUrls` 可选，与上报照片合并去重后仍受 `WORKORDER_MAX_PHOTOS` 约束。
+该变更要求前后端**同版本发布**，旧前端调用将全部失败。
+
+**`POST /` 上报** 新增可选 `mergeIntoId`：同目标已存在未完结工单时，判重返回 409 并附
+`existingWorkOrderId` / `existingWorkOrderNo` / `existingWorkOrderStatus`，前端确认「同一故障」后带该 id 重提，
+落为 `merged` 且不产生新的座位下架。
+
 所有返回单个工单的接口统一返回 **WorkOrderView**：实体字段 + `seatIdList`、`photoUrlList`（已解析的数组）
-+ `categoryLabel`、`priorityLabel`、`statusLabel` + `slaRemainMs`、`slaUsedRatio`。
++ `categoryLabel`、`priorityLabel`、`statusLabel` + `slaRemainMs`、`slaUsedRatio` + `holdMinutes`（含进行中的挂起）。
+
+**`GET /stats`** 返回体含 `definitions`，逐条说明每个比率的分母口径，前端应原样展示而非自行解释（详见 ADR-0006 决策 6）。
 
 ## 模块文件组织
 
