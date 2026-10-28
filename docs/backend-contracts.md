@@ -182,6 +182,7 @@ POST /api/m3/work-orders/:id/cancel    → cancel（本人；body:{reason}）
 GET  /api/m3/work-orders/mine          → listMine
 GET  /api/m3/work-orders/pending       → listPending（权限 workorder.dispatch）
 GET  /api/m3/work-orders/assignments   → listAssignments（维修员）
+GET  /api/m3/work-orders               → listAll（v1.3 台账，见下）
 GET  /api/m3/work-orders/:id           → getStatus（本人/维修员/管理员）
 ```
 
@@ -226,6 +227,31 @@ GET   /api/m3/work-orders/stats               → stats（权限 workorder.stats
 + `categoryLabel`、`priorityLabel`、`statusLabel` + `slaRemainMs`、`slaUsedRatio` + `holdMinutes`（含进行中的挂起）。
 
 **`GET /stats`** 返回体含 `definitions`，逐条说明每个比率的分母口径，前端应原样展示而非自行解释（详见 ADR-0006 决策 6）。
+
+### v1.3 新增路由：工单台账（M3-16）
+
+```
+GET  /api/m3/work-orders  → listAll
+     权限：workorder.dispatch / workorder.manage / workorder.stats（任一）
+     query（全部可选）：
+       status      单值或逗号多值（reported,dispatched）
+       category    分类 code
+       priority    low|medium|high|urgent
+       spaceId / assigneeId / reporterId   整数 id
+       escalated   true|false
+       from / to   YYYY-MM-DD 或完整 ISO；闭区间，YYYY-MM-DD 的 to 视为当天 23:59:59.999
+       keyword     匹配 workOrderNo / title / description（LIKE 通配符已转义）
+       sort        createdDesc（默认）| createdAsc | slaAsc | priority
+       page        默认 1；非正/非整数按 1 处理；越界返回空列表
+       pageSize    默认 20，上限 100
+     返回：{ items: WorkOrderView[], total: number, page: number, pageSize: number }
+```
+
+参数非法（未知状态/分类/优先级、时间格式错、起始晚于结束、id 或页码非整数）一律 `400`，
+不静默忽略——否则用户以为筛选生效，实际看到的是全量。
+
+既有 `/mine`、`/pending`、`/assignments` 三个队列接口**保持不变**：它们各自带着业务排序与固定语义，
+台账是叠加的全量检索入口，不替代队列。
 
 ## 模块文件组织
 
