@@ -53,6 +53,31 @@
 | M3-04 | 完工验收与评价 | 🟢 | `m3-maintenance` | 接口测试 |
 | M3-05 | 某自习室存在维修中工单时全部座位自动下架（M3→M1 写回） | 🟢 | `SeatStateService` | 集成测试 |
 | M3-06 | 工单验收通过后自动恢复座位 | 🟢 | `SeatStateService` | 集成测试 |
+| M3-07 | 单座位粒度报修：仅下架该座位，验收/取消后仅恢复该座位 | 🟢 | `SeatStateService.setSeatMaintenance` | `m3-work-order-collab.spec.ts` |
+| M3-08 | 工单事件时间线：每次流转/改派/返工/升级留痕，可查询 | 🟢 | `work_order_events` + `GET /:id/events` | `m3-work-order-enhance.spec.ts` |
+| M3-09 | 改派：派错人可更换维修员，工单号与状态不变并留痕 | 🟢 | `POST /:id/reassign`（`workorder.dispatch`） | 同上 |
+| M3-10 | 验收不通过返工：退回维修中、座位保持下架、限次防死循环 | 🟢 | `accept(result=fail)` + `reopenCount` | 同上 |
+| M3-11 | 工单权限补全：处理/验收/管理/统计四类权限码与越权防护 | 🟢 | 种子权限 + `@Permissions` | 同上 |
+| M3-12 | 超时升级实质处置：置升级标记、进入升级队列、可被处理 | 🟢 | `escalated` + `GET /escalated` | 同上 |
+| M3-13 | 双时限 SLA：首响时限（解决时限 × 25%）与解决时限分开考核 | 🟢 | `responseDeadline` + `firstRespondedAt` | `m3-maintenance.spec.ts` |
+| M3-14 | 挂起与恢复：维修员申请、派单员确认后 SLA 暂停，恢复时顺延，超 7 天自动升级 | 🟢 | `hold/confirm/resume` + `GET /holds` | `m3-work-order-hold-merge-stats.spec.ts` |
+| M3-15 | 重复工单合并：判重返回主线工单，人工确认后合并，不产生新下架 | 🟢 | `mergeIntoId` + `POST /:id/merge` | 同上 |
+| M3-16 | 列表筛选、分页与搜索：按状态/分类/优先级/空间/时间/关键字筛选并分页 | 🟢 | `GET /m3/work-orders` + 台账页 | `m3-work-order-list.spec.ts` |
+| M3-17 | 维修记录与现场照片：完工必填维修说明，照片 ≤3 张，验收可见 | 🟢 | `complete(resolutionNote)` | `m3-work-order-hold-merge-stats.spec.ts` |
+| M3-18 | 工单统计看板：工单量/完工率/首响/解决时长/SLA 达标率/返工率/空间排行 | 🟢 | `GET /stats` + D 层 `StatsView` | 同上 |
+| M3-19 | 部分/单座位下架：一间教室只下架受影响座位，其余保持可预约 | 🟢 | `report(seatIds)` + `seatIds` 快照 | `m3-work-order-collab.spec.ts` |
+| M3-20 | 工单留言：参与人可留言，进入时间线并通知对方 | 🟢 | `POST /:id/comments` | 同上 |
+| M3-21 | 预计恢复时间：可填可改，变更即通知上报人 | 🟢 | `PATCH /:id/eta` | 同上 |
+| M3-22 | 维修员申诉与管理员终裁，防「拒验—返工」单方面循环 | 🟢 | `POST /:id/appeal(/resolve)` | 同上 |
+| M3-23 | SLA 即将超时预警：剩余不足 20% 时提醒，同一窗口只提醒一次 | 🟢 | `warnSlaApproaching`（定时任务） | 同上 |
+| M3-24 | 下架即作废该座位已有预约、通知本人且不计违约 | 🟢 | `ReservationsService.cancelForSeatsUnderMaintenance` | 同上 |
+| M3-25 | 重复故障识别：同空间同分类 30 天内 ≥3 次标记疑似设备老化 | 🟢 | `degradedSuspected` + `GET /degraded` | 同上 |
+| M3-26 | 维修员负载与技能画像，供派单参考 | 🟢 | `GET /technicians` | 同上 |
+| M3-27 | 低分（≤2 星）自动回访队列与处置留痕 | 🟢 | `GET /revisits` + `POST /:id/revisit` | 同上 |
+| M3-28 | 现场照片数量上限与协议白名单校验 | 🟢 | `photoUrls` + `PATCH /:id/photos` | 同上 |
+| M3-29 | 优先级真正生效：分类基线 × 优先级系数决定 SLA，队列按优先级排序 | 🟢 | `work-order-policy.ts` + `GET /pending` | 同上 |
+| M3-30 | 恶意误报限制：同对象重复上报与高频取消拦截 | 🟢 | `report` 前置校验 | 同上 |
+| M3-31 | 分类固定字典与前端选择器（前后端同一数据源） | 🟢 | `GET /meta` + `useWorkOrderMeta` | 同上 |
 
 ## 附加项：自然语言会话业务代理（Agent）
 
@@ -73,6 +98,7 @@
 ## 未完成项（明确记录，不消失）
 
 - A-01/A-02/A-03：自然语言会话代理（附加项，建议以 DSH 插件形式实现，接入各模块公开接口）。
+- M3-16 已于 2026-10-28 补齐（`GET /m3/work-orders` + 台账页），本条从「未完成项」移除。原有的 `/mine`、`/pending`、`/assignments` 三个语义固定的队列接口保留不动，台账是叠加的全量检索入口。
 - M1-05：院系自习室开放的权限校验单元测试待补。
 - 定时任务（提醒/违约/撤销/升级）目前依赖应用运行中的调度；生产环境需独立调度容器（见 CI 说明）。
 - 邮件/微信推送为通知服务的抽象接口，雏形只实现站内通知。

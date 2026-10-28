@@ -57,6 +57,22 @@ export interface CallerContext {
   department?: string;
 }
 
+/** 维修下架影响到的预约（M3 集成返回结构） */
+export interface MaintenanceCancelledReservation {
+  id: number;
+  userId: number;
+  seatId: number;
+  seatNo: string;
+  spaceName: string;
+  date: string;
+  startHour: number;
+  endHour: number;
+  /** 时段已开始或已签到，未取消，需人工协调 */
+  ongoing: boolean;
+  /** 已被系统取消 */
+  cancelled: boolean;
+}
+
 /** 冲突检测中视为占用预约的状态 */
 const ACTIVE_RESERVATION_STATUSES: ReservationStatus[] = ['booked', 'checked_in'];
 
@@ -161,6 +177,30 @@ export class ReservationsService {
 
     if (await this.hasConflict(seatId, space.id, date, startHour, endHour)) {
       throw new ConflictException('该座位在该时段已被预约或整教室占用');
+    }
+
+    // 唯一索引是 (seatId, date, startHour)，不含状态：同一个起点时段一旦有过
+    // 取消/违约/完成的历史行，直接 insert 会撞索引抛 500，用户表现为「取消后再也约不上」。
+    // 与 rebook 保持同一策略：复用历史行重新激活，而不是新增。
+    const stale = await this.resvRepo.findOneBy({ seatId, date, startHour });
+    if (stale) {
+      if (stale.status === 'booked' || stale.status === 'checked_in') {
+        throw new ConflictException('该座位在该时段已被预约');
+      }
+      stale.userId = userId;
+      stale.endHour = endHour;
+      stale.spaceId = space.id;
+      stale.spaceCode = space.code;
+      stale.spaceName = space.name;
+      stale.seatNo = seat.seatNo;
+      stale.status = 'booked';
+      stale.checkInAt = null;
+      stale.checkInCode = '';
+      stale.cancelledAt = null;
+      stale.noShowAt = null;
+      stale.remindBeforeSent = false;
+      stale.remindAfterSent = false;
+      return this.resvRepo.save(stale);
     }
 
     const resv = this.resvRepo.create({
@@ -306,6 +346,63 @@ export class ReservationsService {
       });
     }
     return rows;
+  }
+
+  // ===== 跨模块：维修下架导致预约失效（M3 集成） =====
+
+  /**
+   * M3 集成接口：座位因维修下架后，处置该座位上已有的预约。
+   *
+   * 规则（公平性约定，见 ADR-0005）：
+   * - 尚未开始的 booked → 置 cancelled 并返回给调用方通知，**不记违约**（非用户原因）
+   * - 已签到的 checked_in → 不取消，返回 ongoing=true 交人工协调（人已在座位上）
+   * - 其它状态 → 忽略
+   *
+   * 为什么放在 M1 而不是让 M3 直接改 reservations 表：
+   * 预约数据属主是 M1，跨模块只能调公开方法（AGENTS.md 模块边界约定）。
+   *
+   * 取消原因由调用方（M3）写入自己的工作单事件，本表不新增列，
+   * 避免为一次集成变更 M1 的核心表结构。
+   */
+  async cancelForSeatsUnderMaintenance(seatIds: number[]): Promise<MaintenanceCancelledReservation[]> {
+    if (!seatIds.length) return [];
+    const now = Date.now();
+    const rows = await this.resvRepo.find({
+      where: { seatId: In(seatIds), status: In(ACTIVE_RESERVATION_STATUSES) },
+    });
+    const affected: MaintenanceCancelledReservation[] = [];
+    for (const r of rows) {
+      const startAt = this.slotStartTime(r.date, r.startHour);
+      const endAt = this.slotStartTime(r.date, r.endHour);
+      if (endAt.getTime() <= now) continue; // 时段已结束，无需处置
+
+      const detail: MaintenanceCancelledReservation = {
+        id: r.id,
+        userId: r.userId,
+        seatId: r.seatId,
+        seatNo: r.seatNo,
+        spaceName: r.spaceName,
+        date: r.date,
+        startHour: r.startHour,
+        endHour: r.endHour,
+        ongoing: false,
+        cancelled: false,
+      };
+
+      if (r.status === 'checked_in' || startAt.getTime() <= now) {
+        // 已经开场或已签到：人不该被一纸系统消息赶走，标记为需人工介入
+        detail.ongoing = true;
+        affected.push(detail);
+        continue;
+      }
+
+      r.status = 'cancelled';
+      r.cancelledAt = new Date();
+      await this.resvRepo.save(r);
+      detail.cancelled = true;
+      affected.push(detail);
+    }
+    return affected;
   }
 
   // ===== 内部工具 =====
