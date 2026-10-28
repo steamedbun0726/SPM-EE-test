@@ -20,10 +20,18 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { WorkOrdersService, ReportWorkOrderInput } from './work-orders.service';
+import { WorkOrdersService, ReportWorkOrderInput, WorkOrderListSort } from './work-orders.service';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser, JwtUser } from '../../common/decorators/current-user.decorator';
-import { WorkOrderStatus } from '../../database/entities/work-order.entity';
+import { WorkOrderPriority, WorkOrderStatus } from '../../database/entities/work-order.entity';
+
+/** 查询串转整数：非法值直接 400，避免把 'abc' 当 undefined 静默忽略 */
+function toInt(raw: string | undefined, field: string): number | undefined {
+  if (raw == null || raw === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value)) throw new BadRequestException(`${field} 必须为整数`);
+  return value;
+}
 
 class ReportWorkOrderDto implements ReportWorkOrderInput {
   @IsString() title: string;
@@ -330,6 +338,49 @@ export class WorkOrdersController {
   }
 
   // ===== 查询 =====
+
+  /**
+   * 工单台账（M3-16）：多条件组合筛选 + 分页 + 关键字搜索。
+   *
+   * 覆盖此前三个列表接口的局限：`/mine` 只有 status、`/pending` 与 `/assignments`
+   * 既无筛选也不分页，工单量一上来就只能一次性拉全量、也无法按空间和时间排查。
+   *
+   * 页码越界（如 999）返回空列表而非报错——台账每天要翻，操作太快或书签里的旧页码
+   * 越界是常态；非法/非正页码按第 1 页处理。
+   */
+  @Get()
+  @Permissions('workorder.dispatch', 'workorder.manage', 'workorder.stats')
+  listAll(
+    @Query('status') status?: string,
+    @Query('category') category?: string,
+    @Query('priority') priority?: string,
+    @Query('spaceId') spaceId?: string,
+    @Query('assigneeId') assigneeId?: string,
+    @Query('reporterId') reporterId?: string,
+    @Query('escalated') escalated?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('keyword') keyword?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sort') sort?: string,
+  ) {
+    return this.workOrdersService.listAll({
+      status,
+      category,
+      priority: priority as WorkOrderPriority | undefined,
+      spaceId: toInt(spaceId, 'spaceId'),
+      assigneeId: toInt(assigneeId, 'assigneeId'),
+      reporterId: toInt(reporterId, 'reporterId'),
+      escalated: escalated == null || escalated === '' ? undefined : escalated === 'true',
+      from,
+      to,
+      keyword,
+      page: toInt(page, 'page'),
+      pageSize: toInt(pageSize, 'pageSize'),
+      sort: sort as WorkOrderListSort | undefined,
+    });
+  }
 
   @Get('mine')
   mine(@CurrentUser() user: JwtUser, @Query('status') status?: WorkOrderStatus) {

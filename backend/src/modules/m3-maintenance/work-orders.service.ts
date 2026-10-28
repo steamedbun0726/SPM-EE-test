@@ -36,6 +36,18 @@ import {
   statusLabel,
 } from './work-order-policy';
 
+/** 台账分页边界（M3-16）：单页上限防止一次性拉全量拖垮接口 */
+const LIST_DEFAULT_PAGE = 1;
+const LIST_DEFAULT_PAGE_SIZE = 20;
+const LIST_MAX_PAGE_SIZE = 100;
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** 转义 LIKE 通配符：不转义时用户输入的 `%` 会让「查无此单」变成「返回全部」 */
+function escapeLike(input: string): string {
+  return input.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 export interface ReportWorkOrderInput {
   title: string;
   description?: string;
@@ -94,6 +106,49 @@ export interface WorkOrderStatsQuery {
   to?: string;
   /** 只看某个空间 */
   spaceId?: number;
+}
+
+/** 列表排序方式（M3-16） */
+export type WorkOrderListSort = 'createdDesc' | 'createdAsc' | 'slaAsc' | 'priority';
+
+/**
+ * 工单列表查询条件（M3-16）。
+ *
+ * 与统计口径不同，这里的 `from`/`to` 是**闭区间**：按日期查台账时，
+ * 「2026-10-28 到 2026-10-28」应该查到当天，而不是空列表。
+ */
+export interface WorkOrderListQuery {
+  /** 状态：单个或逗号分隔多个，如 `reported,dispatched` */
+  status?: string;
+  /** 分类 code */
+  category?: string;
+  /** 优先级 */
+  priority?: WorkOrderPriority;
+  /** 空间 id */
+  spaceId?: number;
+  /** 维修员 id */
+  assigneeId?: number;
+  /** 上报人 id */
+  reporterId?: number;
+  /** 是否被升级过 */
+  escalated?: boolean;
+  /** 创建时间下界（含），`YYYY-MM-DD` 视为当天零点 */
+  from?: string;
+  /** 创建时间上界（含），`YYYY-MM-DD` 视为当天 23:59:59.999 */
+  to?: string;
+  /** 关键字：匹配工单号 / 标题 / 描述 */
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: WorkOrderListSort;
+}
+
+/** 分页结果统一形态（M3-16 验收标准 2） */
+export interface PaginatedWorkOrders {
+  items: WorkOrderView[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 /**
@@ -1653,6 +1708,138 @@ export class WorkOrdersService {
       this.workOrderRepo.find({ where: { status: 'on_hold' }, order: { id: 'ASC' } }),
     ]);
     return { requests: this.toViewList(requests), onHold: this.toViewList(onHold) };
+  }
+
+  /**
+   * 工单台账（M3-16）：多条件组合筛选 + 分页 + 关键字搜索。
+   *
+   * 三个看着是细节、实际会咬人的地方：
+   * 1. **非法页码必须返回空列表**。前端刷新过快、书签里的旧页码都会越界，
+   *    一次 500 就是整页白屏，而台账是运营每天都在翻的页面。
+   * 2. **关键字要转义 LIKE 通配符**。用户搜一个不存在的编号但带了 `%`，
+   *    不转义就会变成「返回全部数据」，排查问题的人会把这个结果当真。
+   * 3. **时间区间取闭区间**。按日期查台账时「同一天到同一天」应该有结果，
+   *    沿用统计接口的左闭右开会让人以为当天没数据。
+   */
+  async listAll(query: WorkOrderListQuery = {}): Promise<PaginatedWorkOrders> {
+    const page =
+      Number.isInteger(query.page) && (query.page as number) >= 1
+        ? (query.page as number)
+        : LIST_DEFAULT_PAGE;
+    const pageSizeRaw = Number.isInteger(query.pageSize) ? (query.pageSize as number) : 0;
+    const pageSize =
+      pageSizeRaw >= 1 ? Math.min(pageSizeRaw, LIST_MAX_PAGE_SIZE) : LIST_DEFAULT_PAGE_SIZE;
+
+    const statuses = this.parseStatusList(query.status);
+    if (query.category && !isCategoryCode(query.category)) {
+      throw new BadRequestException(`未知故障分类：${query.category}`);
+    }
+    if (query.priority && !isPriorityCode(query.priority)) {
+      throw new BadRequestException(`未知优先级：${query.priority}`);
+    }
+    if (query.from && query.to) {
+      const from = this.parseListBoundary(query.from, 'from', 'start');
+      const to = this.parseListBoundary(query.to, 'to', 'end');
+      if (from.getTime() > to.getTime()) {
+        throw new BadRequestException('查询起始时间不能晚于结束时间');
+      }
+    }
+
+    const qb = this.workOrderRepo.createQueryBuilder('w');
+    if (statuses.length) {
+      qb.andWhere('w.status IN (:...statuses)', { statuses });
+    }
+    if (query.category) qb.andWhere('w.category = :category', { category: query.category });
+    if (query.priority) qb.andWhere('w.priority = :priority', { priority: query.priority });
+    if (Number.isInteger(query.spaceId)) qb.andWhere('w.spaceId = :spaceId', { spaceId: query.spaceId });
+    if (Number.isInteger(query.assigneeId)) {
+      qb.andWhere('w.assigneeId = :assigneeId', { assigneeId: query.assigneeId });
+    }
+    if (Number.isInteger(query.reporterId)) {
+      qb.andWhere('w.reporterId = :reporterId', { reporterId: query.reporterId });
+    }
+    if (typeof query.escalated === 'boolean') {
+      qb.andWhere('w.escalated = :escalated', { escalated: query.escalated });
+    }
+    if (query.from) {
+      qb.andWhere('w.createdAt >= :from', {
+        from: this.parseListBoundary(query.from, 'from', 'start'),
+      });
+    }
+    if (query.to) {
+      qb.andWhere('w.createdAt <= :to', { to: this.parseListBoundary(query.to, 'to', 'end') });
+    }
+    if (query.keyword && query.keyword.trim()) {
+      const kw = `%${escapeLike(query.keyword.trim())}%`;
+      qb.andWhere(
+        '(w.workOrderNo LIKE :kw ESCAPE \'\\\' OR w.title LIKE :kw ESCAPE \'\\\' OR w.description LIKE :kw ESCAPE \'\\\')',
+        { kw },
+      );
+    }
+
+    this.applyListSort(qb, query.sort);
+
+    const [rows, total] = await qb
+      .skip((page - 1) * pageSize)
+      .take(pageSize)
+      .getManyAndCount();
+    return { items: this.toViewList(rows), total, page, pageSize };
+  }
+
+  /** 状态筛选：`reported,dispatched` → ['reported','dispatched']，非法状态直接 400 */
+  private parseStatusList(raw?: string): WorkOrderStatus[] {
+    if (!raw || !raw.trim()) return [];
+    const parts = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!parts.length) return [];
+    for (const code of parts) {
+      if (!STATUS_CODES.includes(code as WorkOrderStatus)) {
+        throw new BadRequestException(`未知工单状态：${code}`);
+      }
+    }
+    return parts as WorkOrderStatus[];
+  }
+
+  /** 区间边界：`YYYY-MM-DD` 按整天处理（起点零点、终点最后一毫秒） */
+  private parseListBoundary(raw: string, field: string, edge: 'start' | 'end'): Date {
+    const text = raw.trim();
+    if (DATE_ONLY.test(text)) {
+      const day = new Date(`${text}T00:00:00.000Z`);
+      return edge === 'end' ? new Date(day.getTime() + 86400_000 - 1) : day;
+    }
+    const d = new Date(text);
+    if (Number.isNaN(d.getTime())) throw new BadRequestException(`${field} 时间格式不合法`);
+    return d;
+  }
+
+  /** 排序：默认最新在前；`priority` 与待派单队列同一套权重，避免两处队列标准不一致 */
+  private applyListSort(
+    qb: ReturnType<Repository<WorkOrder>['createQueryBuilder']>,
+    sort?: WorkOrderListSort,
+  ): void {
+    switch (sort) {
+      case 'createdAsc':
+        qb.orderBy('w.createdAt', 'ASC').addOrderBy('w.id', 'ASC');
+        break;
+      case 'slaAsc':
+        // 无时限（如已合并单）排最后，否则它们会因为 NULL 最小而永远占据第一页
+        qb.orderBy('CASE WHEN w.slaDeadline IS NULL THEN 1 ELSE 0 END', 'ASC')
+          .addOrderBy('w.slaDeadline', 'ASC')
+          .addOrderBy('w.id', 'ASC');
+        break;
+      case 'priority':
+        qb.orderBy(
+          `CASE w.priority WHEN 'urgent' THEN ${PRIORITY_WEIGHT.urgent} WHEN 'high' THEN ${PRIORITY_WEIGHT.high} WHEN 'medium' THEN ${PRIORITY_WEIGHT.medium} ELSE ${PRIORITY_WEIGHT.low} END`,
+          'DESC',
+        )
+          .addOrderBy('w.slaDeadline', 'ASC')
+          .addOrderBy('w.id', 'ASC');
+        break;
+      default:
+        qb.orderBy('w.createdAt', 'DESC').addOrderBy('w.id', 'DESC');
+    }
   }
 
   /** 处理低分回访：记录处置说明后关闭回访任务 */

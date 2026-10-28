@@ -236,6 +236,36 @@ export interface WorkOrderEvent {
 }
 
 /** 字典与限制（GET /m3/work-orders/meta） */
+/**
+ * 台账查询条件（M3-16）。
+ * `from`/`to` 传 `YYYY-MM-DD` 时按整天处理：起点当天零点、终点当天最后一毫秒。
+ */
+export interface WorkOrderListParams {
+  /** 支持逗号分隔的多值：reported,dispatched */
+  status?: string
+  category?: string
+  priority?: WorkOrderPriority
+  spaceId?: number
+  assigneeId?: number
+  reporterId?: number
+  escalated?: boolean
+  from?: string
+  to?: string
+  /** 匹配工单号 / 标题 / 描述 */
+  keyword?: string
+  page?: number
+  pageSize?: number
+  sort?: 'createdDesc' | 'createdAsc' | 'slaAsc' | 'priority'
+}
+
+/** 分页结果 */
+export interface PaginatedWorkOrders {
+  items: WorkOrder[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export interface WorkOrderMeta {
   categories: { code: string; name: string; defaultSlaHours: number }[]
   priorities: { code: WorkOrderPriority; name: string; slaFactor: number }[]

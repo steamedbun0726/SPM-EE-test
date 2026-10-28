@@ -1,10 +1,12 @@
 import http from './http'
 import type {
   CompleteWorkOrderParams,
+  PaginatedWorkOrders,
   ReportWorkOrderParams,
   TechnicianWorkload,
   WorkOrder,
   WorkOrderEvent,
+  WorkOrderListParams,
   WorkOrderMeta,
   WorkOrderStats,
 } from './types'
@@ -110,6 +112,14 @@ export function handleRevisit(id: number, note: string): Promise<WorkOrder> {
 /** 取消工单：POST /m3/work-orders/:id/cancel */
 export function cancel(id: number, data?: { reason?: string }): Promise<WorkOrder> {
   return http.post(`/m3/work-orders/${id}/cancel`, data).then((r) => r.data)
+}
+
+/**
+ * 工单台账（M3-16）：GET /m3/work-orders 多条件筛选 + 分页 + 关键字搜索。
+ * 权限 workorder.dispatch / workorder.manage / workorder.stats 任一。
+ */
+export function listAll(params?: WorkOrderListParams): Promise<PaginatedWorkOrders> {
+  return http.get('/m3/work-orders', { params }).then((r) => r.data)
 }
 
 /** 我的工单（上报/维修）：GET /m3/work-orders/mine?status= */

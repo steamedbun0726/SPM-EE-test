@@ -86,6 +86,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '派单台', description: 'M3 派单：指派维修员' },
       },
       {
+        path: 'm3/ledger',
+        name: 'm3-ledger',
+        component: () => import('@/views/m3/WorkOrderLedger.vue'),
+        meta: { title: '工单台账', description: 'M3 台账：组合筛选、分页与关键字检索' },
+      },
+      {
         path: 'm3/desk',
         name: 'm3-desk',
         component: () => import('@/views/m3/MaintenanceDesk.vue'),

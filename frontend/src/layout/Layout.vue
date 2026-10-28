@@ -42,6 +42,14 @@ const menuItems = computed<MenuItem[]>(() => {
     { path: '/m3/my', title: '我的工单' },
   ]
   if (auth.hasPerm('workorder.dispatch')) m3Children.push({ path: '/m3/assign', title: '派单台' })
+  // 台账给「看得比自己的单据更广」的角色：派单、管理与查看统计
+  if (
+    auth.hasPerm('workorder.dispatch') ||
+    auth.hasPerm('workorder.manage') ||
+    auth.hasPerm('workorder.stats')
+  ) {
+    m3Children.push({ path: '/m3/ledger', title: '工单台账' })
+  }
   if (auth.roles.includes('maintenance')) m3Children.push({ path: '/m3/desk', title: '维修台' })
 
   // 管理菜单：按权限码动态挂载到 /admin/* 子页面
