@@ -106,4 +106,11 @@ export class ReservationsController {
   stats() {
     return this.reservationsService.stats();
   }
+
+  /** 运营看板：近 N 天预约量 / 座位利用率 / 时段热力（days 默认 7，范围 1-90） */
+  @Get('stats/overview')
+  @Permissions('stats.view')
+  statsOverview(@Query('days') days?: string) {
+    return this.reservationsService.statsOverview(days ? Number(days) : 7);
+  }
 }

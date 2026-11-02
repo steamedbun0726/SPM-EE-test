@@ -55,3 +55,43 @@ export function qrCode(spaceId: number, date: string): Promise<{ code: string; s
 export function stats(): Promise<Record<string, unknown>> {
   return http.get('/m1/stats').then((r) => r.data)
 }
+
+/** 运营看板：按空间明细 */
+export interface StatsOverviewSpaceRow {
+  spaceId: number
+  code: string
+  name: string
+  seats: number
+  bookingCount: number
+  noShowCount: number
+  checkedInCount: number
+  seatHours: number
+  capacityHours: number
+  utilization: number
+}
+
+/** 运营看板：汇总数据（GET /m1/stats/overview，窗口为今天起未来 N 天） */
+export interface StatsOverview {
+  days: number
+  fromDate: string
+  toDate: string
+  totals: {
+    spaces: number
+    seats: number
+    reservations: number
+    noShow: number
+    checkedIn: number
+    cancelled: number
+    seatHours: number
+    capacityHours: number
+    utilization: number
+  }
+  spaces: StatsOverviewSpaceRow[]
+  hourly: Array<{ hour: number; count: number }>
+  daily: Array<{ date: string; count: number }>
+}
+
+/** 运营看板统计：GET /m1/stats/overview?days=7（权限 stats.view） */
+export function statsOverview(days = 7): Promise<StatsOverview> {
+  return http.get('/m1/stats/overview', { params: { days } }).then((r) => r.data)
+}

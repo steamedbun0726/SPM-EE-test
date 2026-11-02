@@ -31,6 +31,14 @@ const iconMap: Record<string, Component> = {
 
 // 主菜单：按模块聚合子页面，审批/派单/维修入口按权限动态追加
 const menuItems = computed<MenuItem[]>(() => {
+  const m1Children = [
+    { path: '/m1', title: '座位搜索' },
+    { path: '/m1/my', title: '我的预约' },
+    { path: '/m1/history', title: '预约历史' },
+    { path: '/m1/violations', title: '违约记录' },
+  ]
+  if (auth.hasPerm('stats.view')) m1Children.push({ path: '/m1/ops', title: '运营看板' })
+
   const m2Children = [
     { path: '/m2', title: '教室申请' },
     { path: '/m2/my', title: '我的申请' },
@@ -61,12 +69,7 @@ const menuItems = computed<MenuItem[]>(() => {
       path: '/m1',
       title: '自习座位',
       icon: 'Reading',
-      children: [
-        { path: '/m1', title: '座位搜索' },
-        { path: '/m1/my', title: '我的预约' },
-        { path: '/m1/history', title: '预约历史' },
-        { path: '/m1/violations', title: '违约记录' },
-      ],
+      children: m1Children,
     },
     { path: '/m2', title: '整教室预约', icon: 'OfficeBuilding', children: m2Children },
     { path: '/m3', title: '物业报修', icon: 'Tools', children: m3Children },
