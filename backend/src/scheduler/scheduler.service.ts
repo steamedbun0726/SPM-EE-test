@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Reservation } from '../database/entities/reservation.entity';
 import { Violation } from '../database/entities/violation.entity';
-import { NotificationsService } from '../shared/notifications/notifications.service';
+import { PushService } from '../shared/notifications/push.service';
 import { SystemConfigService } from '../shared/system-config/system-config.service';
 import { RoomRequestsService } from '../modules/m2-rooms/room-requests.service';
 import { WorkOrdersService } from '../modules/m3-maintenance/work-orders.service';
@@ -23,7 +23,7 @@ export class SchedulerService {
   constructor(
     @InjectRepository(Reservation) private readonly resvRepo: Repository<Reservation>,
     @InjectRepository(Violation) private readonly violRepo: Repository<Violation>,
-    private readonly notificationsService: NotificationsService,
+    private readonly pushService: PushService,
     private readonly configService: SystemConfigService,
     private readonly roomRequestsService: RoomRequestsService,
     private readonly workOrdersService: WorkOrdersService,
@@ -62,7 +62,7 @@ export class SchedulerService {
 
       // 预约前 15 分钟提醒（一次）
       if (!r.remindBeforeSent && now.getTime() >= start.getTime() - beforeMin * 60_000 && now < start) {
-        await this.notificationsService.send(
+        await this.pushService.notify(
           r.userId,
           'reminder',
           '自习座位预约提醒',
@@ -75,7 +75,7 @@ export class SchedulerService {
 
       // 预约开始后 10 分钟仍未签到：再次提醒
       if (!r.remindAfterSent && now.getTime() >= start.getTime() + afterMin * 60_000) {
-        await this.notificationsService.send(
+        await this.pushService.notify(
           r.userId,
           'reminder',
           '请尽快签到',
@@ -99,7 +99,7 @@ export class SchedulerService {
             reason: `未在预约开始后 ${graceMin} 分钟内签到`,
           }),
         );
-        await this.notificationsService.send(
+        await this.pushService.notify(
           r.userId,
           'no_show',
           '预约已取消并记录违约',

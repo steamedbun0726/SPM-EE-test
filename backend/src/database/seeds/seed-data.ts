@@ -59,14 +59,14 @@ export const ROLES: Array<{ code: string; name: string; description: string; per
 ];
 
 /** 演示账号（密码统一见 README） */
-export const USERS: Array<{ username: string; password: string; name: string; department: string; roles: string[] }> = [
-  { username: 'admin', password: 'admin123', name: '系统管理员', department: '', roles: ['admin'] },
-  { username: 'room_admin', password: 'room123', name: '王老师', department: '教务办公室', roles: ['room_admin'] },
-  { username: 'ops', password: 'ops123', name: '李运营', department: '后勤保障部', roles: ['ops'] },
-  { username: 'maintenance', password: 'maint123', name: '张师傅', department: '后勤保障部', roles: ['maintenance'] },
-  { username: 'approver', password: 'approve123', name: '陈审批', department: '教务办公室', roles: ['approver'] },
-  { username: 'student', password: 'student123', name: '张三', department: '计算机学院', roles: ['student'] },
-  { username: 'student2', password: 'student123', name: '李四', department: '数学学院', roles: ['student'] },
+export const USERS: Array<{ username: string; password: string; name: string; email: string; department: string; roles: string[] }> = [
+  { username: 'admin', password: 'admin123', name: '系统管理员', email: 'admin@campushub.edu', department: '', roles: ['admin'] },
+  { username: 'room_admin', password: 'room123', name: '王老师', email: 'room_admin@campushub.edu', department: '教务办公室', roles: ['room_admin'] },
+  { username: 'ops', password: 'ops123', name: '李运营', email: 'ops@campushub.edu', department: '后勤保障部', roles: ['ops'] },
+  { username: 'maintenance', password: 'maint123', name: '张师傅', email: 'maintenance@campushub.edu', department: '后勤保障部', roles: ['maintenance'] },
+  { username: 'approver', password: 'approve123', name: '陈审批', email: 'approver@campushub.edu', department: '教务办公室', roles: ['approver'] },
+  { username: 'student', password: 'student123', name: '张三', email: 'student@campushub.edu', department: '计算机学院', roles: ['student'] },
+  { username: 'student2', password: 'student123', name: '李四', email: 'student2@campushub.edu', department: '数学学院', roles: ['student'] },
 ];
 
 /** 空间与座位种子 */
@@ -153,4 +153,17 @@ export const SYSTEM_CONFIGS: Array<{ key: string; value: string; description: st
   { key: 'ROOM_APPROVAL_TIMEOUT_HOURS', value: '2', description: '整教室审批超时自动撤销的小时数（M2）' },
   { key: 'WORKORDER_SLA_HOURS', value: '48', description: '工单维修 SLA 小时数，超时升级（M3）' },
   { key: 'WORKORDER_ESCALATE_HOURS', value: '24', description: '升级后重新计算 SLA 的小时数' },
+  // 外部推送（阶段 3）：默认关闭，避免开发环境误发；生产按需打开并填写渠道凭据
+  { key: 'PUSH_ENABLED', value: 'false', description: '外部推送总开关（true 时尝试邮件/微信渠道）' },
+  { key: 'PUSH_EMAIL_ENABLED', value: 'false', description: '邮件推送开关（需同时配置 SMTP_HOST）' },
+  { key: 'SMTP_HOST', value: '', description: 'SMTP 服务器地址' },
+  { key: 'SMTP_PORT', value: '587', description: 'SMTP 端口（465 为 SSL）' },
+  { key: 'SMTP_USER', value: '', description: 'SMTP 用户名（留空为匿名）' },
+  { key: 'SMTP_PASS', value: '', description: 'SMTP 密码' },
+  { key: 'SMTP_FROM', value: 'no-reply@campushub.edu', description: '邮件发件人' },
+  { key: 'PUSH_WECHAT_ENABLED', value: 'false', description: '微信服务号推送开关（需配置 APPID/SECRET）' },
+  { key: 'WECHAT_APPID', value: '', description: '微信服务号 AppID' },
+  { key: 'WECHAT_SECRET', value: '', description: '微信服务号 AppSecret' },
+  { key: 'WECHAT_TEMPLATE_ID', value: '', description: '模板消息模板 ID' },
+  { key: 'WECHAT_DEMO_OPENID', value: '', description: '演示用接收 openid（正式版由账号绑定获得）' },
 ];
