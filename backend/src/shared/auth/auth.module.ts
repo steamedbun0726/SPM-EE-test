@@ -6,6 +6,7 @@ import { Role } from '../../database/entities/role.entity';
 import { Permission } from '../../database/entities/permission.entity';
 import { UsersService } from '../rbac/users.service';
 import { RolesService } from '../rbac/roles.service';
+import { UsersController, RolesController } from '../rbac/rbac.controller';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -21,7 +22,7 @@ import { PermissionsGuard } from './permissions.guard';
     }),
   ],
   providers: [AuthService, UsersService, RolesService, JwtAuthGuard, PermissionsGuard],
-  controllers: [AuthController],
+  controllers: [AuthController, UsersController, RolesController],
   exports: [AuthService, UsersService, RolesService, JwtModule, JwtAuthGuard, PermissionsGuard],
 })
 export class AuthModule {}
