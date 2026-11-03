@@ -28,19 +28,29 @@ export class SeedService {
     const seatRepo = this.dataSource.getRepository(Seat);
     const cfgRepo = this.dataSource.getRepository(SystemConfig);
 
-    // 1. 权限（幂等）
-    const permCount = await permRepo.count();
-    if (permCount === 0) {
-      await permRepo.save(PERMISSIONS.map((p) => permRepo.create(p)));
-      this.logger.log(`seeded ${PERMISSIONS.length} permissions`);
+    // 1. 权限（幂等 upsert：新增权限也能补进已有库）
+    for (const p of PERMISSIONS) {
+      const exists = await permRepo.findOneBy({ code: p.code });
+      if (!exists) {
+        await permRepo.save(permRepo.create(p));
+        this.logger.log(`seeded permission ${p.code}`);
+      }
     }
 
-    // 2. 角色 + 权限（幂等）
+    // 2. 角色 + 权限（幂等；已存在则同步权限集合，保证权限码调整能生效）
     for (const r of ROLES) {
-      const exists = await roleRepo.findOneBy({ code: r.code });
-      if (exists) continue;
       const perms = await permRepo.findBy({ code: In(r.permissions) });
-      await roleRepo.save(roleRepo.create({ code: r.code, name: r.name, description: r.description, permissions: perms }));
+      const exists = await roleRepo.findOne({ where: { code: r.code }, relations: { permissions: true } });
+      if (exists) {
+        exists.name = r.name;
+        exists.description = r.description;
+        exists.permissions = perms;
+        await roleRepo.save(exists);
+        continue;
+      }
+      await roleRepo.save(
+        roleRepo.create({ code: r.code, name: r.name, description: r.description, permissions: perms }),
+      );
       this.logger.log(`seeded role ${r.code}`);
     }
 

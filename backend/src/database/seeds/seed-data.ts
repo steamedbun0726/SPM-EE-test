@@ -11,7 +11,8 @@ export const PERMISSIONS: Array<{ code: string; name: string; description: strin
   { code: 'seat.book', name: '座位预约', description: '发起/取消座位预约' },
   { code: 'seat.signin', name: '座位签到', description: '录入签到码签到' },
   { code: 'room.apply', name: '教室预约申请', description: '提交整教室预约申请' },
-  { code: 'room.approve', name: '教室审批', description: '审批整教室预约' },
+  { code: 'room.approve.l1', name: '教室审批（一级）', description: '第一级审批：教室管理员 / 院系管理员' },
+  { code: 'room.approve.l2', name: '教室审批（二级）', description: '第二级终审：教务处' },
   { code: 'workorder.report', name: '报修上报', description: '上报物业故障' },
   { code: 'workorder.dispatch', name: '工单派单', description: '派单与升级处理' },
   { code: 'stats.view', name: '运营统计', description: '查看预约与工单统计' },
@@ -29,8 +30,8 @@ export const ROLES: Array<{ code: string; name: string; description: string; per
   {
     code: 'room_admin',
     name: '教室管理员',
-    description: '管理自习室/座位主数据、审批教室预约、查看统计',
-    permissions: ['space.manage', 'seat.manage', 'room.approve', 'stats.view', 'audit.view', 'seat.search', 'workorder.report'],
+    description: '管理自习室/座位主数据、审批教室预约（一级）、查看统计',
+    permissions: ['space.manage', 'seat.manage', 'room.approve.l1', 'stats.view', 'audit.view', 'seat.search', 'workorder.report'],
   },
   {
     code: 'ops',
@@ -41,8 +42,14 @@ export const ROLES: Array<{ code: string; name: string; description: string; per
   {
     code: 'approver',
     name: '审批员',
-    description: '审批整教室预约',
-    permissions: ['room.approve', 'seat.search'],
+    description: '审批整教室预约（二级终审）',
+    permissions: ['room.approve.l2', 'seat.search'],
+  },
+  {
+    code: 'teacher',
+    name: '教师',
+    description: '预约自习座位、申请整教室预约',
+    permissions: ['seat.search', 'seat.book', 'seat.signin', 'room.apply', 'workorder.report'],
   },
   {
     code: 'maintenance',
@@ -53,8 +60,8 @@ export const ROLES: Array<{ code: string; name: string; description: string; per
   {
     code: 'student',
     name: '学生',
-    description: '预约自习座位、提交教室预约申请、上报故障',
-    permissions: ['seat.search', 'seat.book', 'seat.signin', 'room.apply', 'workorder.report'],
+    description: '预约自习座位、上报故障（不具备整教室申请权限）',
+    permissions: ['seat.search', 'seat.book', 'seat.signin', 'workorder.report'],
   },
 ];
 
@@ -64,7 +71,8 @@ export const USERS: Array<{ username: string; password: string; name: string; de
   { username: 'room_admin', password: 'room123', name: '王老师', department: '教务办公室', roles: ['room_admin'] },
   { username: 'ops', password: 'ops123', name: '李运营', department: '后勤保障部', roles: ['ops'] },
   { username: 'maintenance', password: 'maint123', name: '张师傅', department: '后勤保障部', roles: ['maintenance'] },
-  { username: 'approver', password: 'approve123', name: '陈审批', department: '教务办公室', roles: ['approver'] },
+  { username: 'approver', password: 'approve123', name: '陈审批', department: '教务处', roles: ['approver'] },
+  { username: 'teacher', password: 'teacher123', name: '王教授', department: '计算机学院', roles: ['teacher'] },
   { username: 'student', password: 'student123', name: '张三', department: '计算机学院', roles: ['student'] },
   { username: 'student2', password: 'student123', name: '李四', department: '数学学院', roles: ['student'] },
 ];
@@ -150,7 +158,9 @@ export const SYSTEM_CONFIGS: Array<{ key: string; value: string; description: st
   { key: 'NO_SHOW_GRACE_MINUTES', value: '15', description: '预约开始后未签到自动取消并记违约的宽限分钟数' },
   { key: 'REMINDER_BEFORE_MINUTES', value: '15', description: '预约开始前提醒的分钟数' },
   { key: 'REMINDER_AFTER_MINUTES', value: '10', description: '预约开始后再次提醒的分钟数' },
-  { key: 'ROOM_APPROVAL_TIMEOUT_HOURS', value: '2', description: '整教室审批超时自动撤销的小时数（M2）' },
+  { key: 'ROOM_APPROVAL_LEVELS', value: '2', description: '整教室预约的审批层级数（M2）' },
+  { key: 'ROOM_APPROVAL_TIMEOUT_HOURS', value: '24', description: '整教室审批超时自动撤销的小时数（M2）' },
+  { key: 'ROOM_APPROVAL_CUTOFF_HOURS', value: '2', description: '活动开始前多少小时停止审批倒计时（M2）' },
   { key: 'WORKORDER_SLA_HOURS', value: '48', description: '工单维修 SLA 小时数，超时升级（M3）' },
   { key: 'WORKORDER_ESCALATE_HOURS', value: '24', description: '升级后重新计算 SLA 的小时数' },
 ];
