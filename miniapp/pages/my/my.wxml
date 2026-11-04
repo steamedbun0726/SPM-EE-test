@@ -1,0 +1,30 @@
+<view class="container">
+  <view class="card user-card">
+    <view class="avatar">{{nameFirstChar}}</view>
+    <view class="user-info">
+      <view class="user-name">{{name || '同学'}}</view>
+      <view class="muted">我的自习座位预约</view>
+    </view>
+  </view>
+
+  <view wx:if="{{!loading && items.length === 0}}" class="card empty">
+    <view>还没有预约记录，去「预约座位」选一个座位吧</view>
+    <view class="empty-action">
+      <button class="btn-primary" bindtap="goBooking">去预约</button>
+    </view>
+  </view>
+
+  <view wx:for="{{items}}" wx:key="id" class="card record">
+    <view class="record-head">
+      <view class="record-space">{{item.spaceName}} · {{item.seatNo}}</view>
+      <text class="status {{item.statusClass}}">{{item.statusText}}</text>
+    </view>
+    <view class="record-meta">{{item.date}} · {{item.timeText}}</view>
+    <view wx:if="{{item.status === 'booked'}}" class="record-actions">
+      <button class="btn-ghost" data-id="{{item.id}}" bindtap="cancel">取消预约</button>
+      <button class="btn-primary btn-small" data-id="{{item.id}}" bindtap="scanCheckIn">扫码签到</button>
+    </view>
+  </view>
+
+  <view class="muted checkin-tip">签到方式：扫描自习室屏幕上的签到二维码（当日动态码）</view>
+</view>

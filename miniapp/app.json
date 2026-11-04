@@ -1,0 +1,32 @@
+{
+  "pages": [
+    "pages/seats/seats",
+    "pages/my/my",
+    "pages/login/login"
+  ],
+  "window": {
+    "navigationBarTitleText": "CampusHub",
+    "navigationBarBackgroundColor": "#2b6cff",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f5f7fb",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "color": "#8a94a6",
+    "selectedColor": "#2b6cff",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/seats/seats",
+        "text": "预约座位"
+      },
+      {
+        "pagePath": "pages/my/my",
+        "text": "我的预约"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

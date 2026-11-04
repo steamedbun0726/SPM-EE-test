@@ -1,0 +1,73 @@
+<view class="container">
+  <view class="card">
+    <view class="filter-row">
+      <text class="filter-label">日期</text>
+      <picker mode="date" start="{{today}}" end="{{maxDate}}" value="{{date}}" bindchange="onDateChange">
+        <view class="picker-value">{{date}}</view>
+      </picker>
+    </view>
+
+    <view class="filter-row">
+      <text class="filter-label">时段</text>
+      <view class="time-range">
+        <picker range="{{startOptions}}" value="{{startHour}}" bindchange="onStartChange">
+          <view class="picker-value">{{startLabel}}</view>
+        </picker>
+        <text class="time-sep">至</text>
+        <picker range="{{endOptions}}" value="{{endHourIndex}}" bindchange="onEndChange">
+          <view class="picker-value">{{endLabel}}</view>
+        </picker>
+      </view>
+    </view>
+
+    <view class="filter-row">
+      <text class="filter-label">仅看带插座</text>
+      <switch checked="{{onlySocket}}" color="#2b6cff" bindchange="onSocketChange" />
+    </view>
+
+    <button class="btn-primary" loading="{{loading}}" disabled="{{loading}}" bindtap="search">搜索可约座位</button>
+  </view>
+
+  <view wx:if="{{searched}}" class="result-bar">
+    <text>共 {{total}} 个可约座位</text>
+    <text wx:if="{{selectedSeatId}}" class="result-selected">已选 {{selectedSeatNo}}</text>
+  </view>
+
+  <view wx:for="{{groups}}" wx:for-item="group" wx:key="spaceId" class="card">
+    <view class="space-head">
+      <view class="space-info">
+        <view class="space-name">{{group.spaceName}}</view>
+        <view class="muted">{{group.spaceCode}} · 开放 {{group.openTime}} - {{group.closeTime}}</view>
+      </view>
+      <text class="space-count">{{group.seats.length}} 个可约</text>
+    </view>
+
+    <view class="seat-grid">
+      <view
+        wx:for="{{group.seats}}"
+        wx:for-item="seat"
+        wx:key="seatId"
+        class="seat-chip {{seat.seatId == selectedSeatId ? 'seat-chip-active' : ''}}"
+        data-seat-id="{{seat.seatId}}"
+        data-seat-no="{{seat.seatNo}}"
+        data-space-name="{{group.spaceName}}"
+        bindtap="selectSeat"
+      >
+        <text class="seat-no">{{seat.seatNo}}</text>
+        <text wx:if="{{seat.hasSocket}}" class="seat-socket">插座</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{searched && total === 0}}" class="card empty">
+    该时段暂无可预约座位，试试换个日期或时段
+  </view>
+
+  <view wx:if="{{selectedSeatId}}" class="card book-card">
+    <view class="book-summary">
+      <view class="book-space">{{selectedSpaceName}} · {{selectedSeatNo}}</view>
+      <view class="muted">{{date}} {{startLabel}} - {{endLabel}}</view>
+    </view>
+    <button class="btn-primary" bindtap="book">确认预约</button>
+  </view>
+</view>
