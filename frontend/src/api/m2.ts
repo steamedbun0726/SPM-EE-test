@@ -1,5 +1,10 @@
 import http from './http'
-import type { ApprovalRecord, ApplyRoomRequestParams, RoomBookingRequest } from './types'
+import type {
+  ApprovalRecord,
+  ApplyRoomRequestParams,
+  PreflightResult,
+  RoomBookingRequest,
+} from './types'
 
 /**
  * M2 整教室预约与审批 API
@@ -9,6 +14,11 @@ import type { ApprovalRecord, ApplyRoomRequestParams, RoomBookingRequest } from 
 /** 提交整教室预约申请：POST /m2/requests（权限 room.apply） */
 export function apply(data: ApplyRoomRequestParams): Promise<RoomBookingRequest> {
   return http.post('/m2/requests', data).then((r) => r.data)
+}
+
+/** 提交前冲突预检（不落库）：POST /m2/requests/preflight（权限 room.apply） */
+export function preflight(data: ApplyRoomRequestParams): Promise<PreflightResult> {
+  return http.post('/m2/requests/preflight', data).then((r) => r.data)
 }
 
 /** 审批通过（多级审批）：POST /m2/requests/:id/approve（权限 room.approve） */

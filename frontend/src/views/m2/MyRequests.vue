@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { mine, cancel, approvals } from '@/api/m2'
-import type { ApprovalRecord, RoomBookingRequest, RoomRequestStatus } from '@/api/types'
+import { mine, cancel, detail as fetchDetail } from '@/api/m2'
+import type {
+  ApprovalRecord,
+  OccupancyBlock,
+  RoomBookingRequest,
+  RoomRequestStatus,
+} from '@/api/types'
 
 const statusMap: Record<RoomRequestStatus, { label: string; type: string }> = {
   pending: { label: '待审批', type: 'warning' },
@@ -19,7 +24,23 @@ const list = ref<RoomBookingRequest[]>([])
 const detailVisible = ref(false)
 const detail = ref<RoomBookingRequest | null>(null)
 const approvalList = ref<ApprovalRecord[]>([])
+const occupancyList = ref<OccupancyBlock[]>([])
 const approvalLoading = ref(false)
+
+const SOURCE_LABEL: Record<string, string> = {
+  M1: 'M1 个人预约',
+  M2: 'M2 整教室审批',
+  M3: 'M3 报修下架',
+  SYSTEM: '系统',
+}
+
+/** 可撤销：待审批，或已通过但活动尚未开始 */
+function cancellable(r: RoomBookingRequest): boolean {
+  if (r.status === 'pending') return true
+  if (r.status !== 'approved') return false
+  const start = new Date(`${r.date}T${String(r.startHour).padStart(2, '0')}:00:00`)
+  return start.getTime() > Date.now()
+}
 
 function pad(n: number) {
   return String(n).padStart(2, '0')
@@ -77,8 +98,12 @@ async function openDetail(row: RoomBookingRequest) {
   detailVisible.value = true
   approvalLoading.value = true
   approvalList.value = []
+  occupancyList.value = []
   try {
-    approvalList.value = await approvals(row.id)
+    const full = await fetchDetail(row.id)
+    detail.value = full
+    approvalList.value = full.approvals ?? []
+    occupancyList.value = full.occupancy ?? []
   } catch {
     /* 拦截器已统一提示 */
   } finally {
@@ -117,7 +142,7 @@ onMounted(load)
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.status === 'pending'" type="danger" size="small" link @click="handleCancel(row)">
+            <el-button v-if="cancellable(row)" type="danger" size="small" link @click="handleCancel(row)">
               撤销
             </el-button>
             <el-button type="primary" size="small" link @click="openDetail(row)">详情</el-button>
@@ -159,6 +184,21 @@ onMounted(load)
         </el-timeline>
         <el-empty v-else description="暂无审批记录" :image-size="60" />
       </div>
+
+      <template v-if="occupancyList.length">
+        <el-divider content-position="left">时段占用（写入来源可追溯）</el-divider>
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item
+            v-for="o in occupancyList"
+            :key="o.occupancyId"
+            :label="o.date"
+          >
+            {{ pad(o.startHour) }}:00 - {{ pad(o.endHour) }}:00 ·
+            {{ o.scope === 'space' ? '整间教室' : '单个座位' }} ·
+            来源 {{ SOURCE_LABEL[o.source] || o.source }}（{{ o.refType }} #{{ o.refId }}）
+          </el-descriptions-item>
+        </el-descriptions>
+      </template>
     </el-dialog>
   </div>
 </template>

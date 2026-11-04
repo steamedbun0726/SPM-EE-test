@@ -4,6 +4,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { Space } from '../database/entities/space.entity';
 import { Seat } from '../database/entities/seat.entity';
 import { SeatStatusLog } from '../database/entities/seat-status-log.entity';
+import { Occupancy } from '../database/entities/occupancy.entity';
 import { Reservation } from '../database/entities/reservation.entity';
 import { Notification } from '../database/entities/notification.entity';
 import { AuditLog } from '../database/entities/audit-log.entity';
@@ -11,6 +12,7 @@ import { SystemConfig } from '../database/entities/system-config.entity';
 import { SpacesService } from './spaces/spaces.service';
 import { SpacesController } from './spaces/spaces.controller';
 import { SeatStateService } from './spaces/seat-state.service';
+import { OccupancyService } from './spaces/occupancy.service';
 import { NotificationsService } from './notifications/notifications.service';
 import { NotificationsController } from './notifications/notifications.controller';
 import { AuditService } from './audit/audit.service';
@@ -28,6 +30,7 @@ import { AuthModule } from './auth/auth.module';
       Space,
       Seat,
       SeatStatusLog,
+      Occupancy,
       Reservation,
       Notification,
       AuditLog,
@@ -37,6 +40,7 @@ import { AuthModule } from './auth/auth.module';
   providers: [
     SpacesService,
     SeatStateService,
+    OccupancyService,
     NotificationsService,
     AuditService,
     SystemConfigService,
@@ -46,6 +50,7 @@ import { AuthModule } from './auth/auth.module';
   exports: [
     SpacesService,
     SeatStateService,
+    OccupancyService,
     NotificationsService,
     AuditService,
     SystemConfigService,

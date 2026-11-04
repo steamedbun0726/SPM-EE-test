@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listSpaces } from '@/api/admin'
-import { apply } from '@/api/m2'
-import type { Space } from '@/api/types'
+import { apply, preflight } from '@/api/m2'
+import type { PreflightResult, Space } from '@/api/types'
 
 const loading = ref(false)
 const submitting = ref(false)
 const spaces = ref<Space[]>([])
+
+/** 冲突预检结果：reason 非空时禁止提交 */
+const conflict = ref<PreflightResult | null>(null)
+const checking = ref(false)
+let checkTimer: ReturnType<typeof setTimeout> | null = null
+let checkSeq = 0
 
 const form = reactive({
   spaceId: undefined as number | undefined,
@@ -52,9 +58,49 @@ async function loadSpaces() {
   }
 }
 
+/** 表单变化后防抖调用 preflight，避免每次输入都打接口 */
+async function runPreflight() {
+  conflict.value = null
+  if (!form.spaceId || !form.date || form.startHour >= form.endHour) return
+  const seq = ++checkSeq
+  checking.value = true
+  try {
+    const result = await preflight({
+      spaceId: form.spaceId,
+      date: form.date,
+      startHour: form.startHour,
+      endHour: form.endHour,
+    })
+    // 丢弃过期响应，防止旧结果覆盖新表单的结论
+    if (seq === checkSeq) conflict.value = result.reason ? result : null
+  } catch {
+    /* 预检失败不阻塞提交，后端仍会校验 */
+  } finally {
+    if (seq === checkSeq) checking.value = false
+  }
+}
+
+function schedulePreflight() {
+  if (checkTimer) clearTimeout(checkTimer)
+  checkTimer = setTimeout(runPreflight, 300)
+}
+
+watch(
+  () => [form.spaceId, form.date, form.startHour, form.endHour],
+  () => schedulePreflight(),
+)
+
+onUnmounted(() => {
+  if (checkTimer) clearTimeout(checkTimer)
+})
+
 async function submit() {
   if (!form.spaceId) {
     ElMessage.warning('请选择教室')
+    return
+  }
+  if (conflict.value?.reason) {
+    ElMessage.warning(conflict.value.reason)
     return
   }
   submitting.value = true
@@ -68,6 +114,7 @@ async function submit() {
     })
     ElMessage.success('已提交，等待审批')
     form.purpose = ''
+    conflict.value = null
   } catch {
     /* 拦截器已统一提示 */
   } finally {
@@ -86,12 +133,12 @@ onMounted(loadSpaces)
     </div>
 
     <el-alert
-      type="warning"
+      type="info"
       :closable="false"
       show-icon
       class="tip-alert"
       title="注意事项"
-      description="审批通过后，该教室在该时段的全部座位将被占用（不可再被个人预约）；逾期未审批的申请将自动超时撤销。"
+      description="审批通过后，该教室在该时段被整间占用，个人无法再预约该时段的座位；驳回或超时撤销会自动释放。"
     />
 
     <el-card shadow="never" class="form-card" v-loading="loading">
@@ -123,7 +170,24 @@ onMounted(loadSpaces)
           <el-select v-model="form.endHour" style="width: 100px">
             <el-option v-for="h in endOptions" :key="h" :label="`${h}:00`" :value="h" />
           </el-select>
+          <span v-if="checking" class="checking-tip">正在检查冲突…</span>
         </el-form-item>
+
+        <el-form-item v-if="conflict?.reason" label="冲突提示">
+          <el-alert
+            type="error"
+            :closable="false"
+            show-icon
+            class="conflict-alert"
+            :title="conflict.reason"
+            :description="
+              conflict.roomRequest
+                ? `已被申请单 ${conflict.roomRequest.requestCode} 占用，请改选时段或教室`
+                : '请改选时段或教室后再提交'
+            "
+          />
+        </el-form-item>
+
         <el-form-item label="用途说明">
           <el-input
             v-model="form.purpose"
@@ -136,7 +200,14 @@ onMounted(loadSpaces)
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="submitting" @click="submit">提交申请</el-button>
+          <el-button
+            type="primary"
+            :loading="submitting"
+            :disabled="!!conflict?.reason"
+            @click="submit"
+          >
+            提交申请
+          </el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -172,5 +243,15 @@ onMounted(loadSpaces)
 .range-sep {
   margin: 0 8px;
   color: #909399;
+}
+
+.checking-tip {
+  margin-left: 10px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.conflict-alert {
+  width: 420px;
 }
 </style>
