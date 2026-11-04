@@ -80,9 +80,13 @@ export interface RoomBookingRequest {
   currentLevel: number
   maxLevel: number
   timeoutAt: Date | null
+  /** @deprecated 旧实现遗留字段，ADR-0002 后占用由 occupancy 表达 */
   occupiedSeatIds: number[] | null
   rejectReason: string
   decidedAt: Date | null
+  /** 详情接口返回：当前有效的时段占用（含写入来源） */
+  occupancy?: OccupancyBlock[]
+  approvals?: ApprovalRecord[]
   createdAt: Date
   updatedAt: Date
 }
@@ -106,6 +110,27 @@ export interface ApplyRoomRequestParams {
   startHour: number
   endHour: number
   purpose?: string
+}
+
+/** 时段占用记录（ADR-0002）：一行 = 某座位/某空间在某时段被占用 */
+export interface OccupancyBlock {
+  occupancyId: number
+  scope: 'seat' | 'space'
+  source: 'M1' | 'M2' | 'M3' | 'SYSTEM'
+  refType: string
+  refId: number
+  seatId: number | null
+  date: string
+  startHour: number
+  endHour: number
+  reason: string
+}
+
+/** 提交前冲突预检结果 */
+export interface PreflightResult {
+  roomRequest: { id: number; requestCode: string } | null
+  seatConflicts: number
+  reason: string | null
 }
 
 /* ===== M3 物业报修 ===== */
@@ -175,7 +200,8 @@ export interface Seat {
   seatNo: string
   hasSocket: boolean
   isActive: boolean
-  status: 'available' | 'maintenance' | 'occupied_by_room'
+  /** 物理状态：ADR-0002 起不再用 occupied_by_room 表达「被预约」 */
+  status: 'available' | 'maintenance'
   statusSource: 'M1' | 'M2' | 'M3' | 'SYSTEM' | null
   lastStatusAt: Date | null
   createdAt: Date
