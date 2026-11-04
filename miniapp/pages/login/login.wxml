@@ -1,0 +1,27 @@
+<view class="login-page">
+  <view class="brand">
+    <view class="logo">C</view>
+    <view class="brand-title">CampusHub</view>
+    <view class="brand-sub">校园资源服务平台 · 学生端</view>
+  </view>
+
+  <view class="card login-card">
+    <view class="field">
+      <text class="field-label">学号 / 用户名</text>
+      <input class="field-input" value="{{username}}" placeholder="请输入用户名" placeholder-class="ph" bindinput="onUsername" />
+    </view>
+    <view class="field">
+      <text class="field-label">密码</text>
+      <input
+        class="field-input"
+        value="{{password}}"
+        password
+        placeholder="请输入密码"
+        placeholder-class="ph"
+        bindinput="onPassword"
+      />
+    </view>
+    <button class="btn-primary" loading="{{loading}}" disabled="{{loading}}" bindtap="submit">登录</button>
+    <view class="muted login-tip">测试账号 student / student123 · 登录态与 Web 端共用 JWT</view>
+  </view>
+</view>

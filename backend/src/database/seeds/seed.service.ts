@@ -47,13 +47,21 @@ export class SeedService {
     // 3. 用户（幂等）
     for (const u of USERS) {
       const exists = await userRepo.findOneBy({ username: u.username });
-      if (exists) continue;
+      if (exists) {
+        // 存量数据补齐邮箱（仅当为空），保证外部推送有目标地址
+        if (!exists.email && u.email) {
+          exists.email = u.email;
+          await userRepo.save(exists);
+        }
+        continue;
+      }
       const roles = await roleRepo.findBy({ code: In(u.roles) });
       await userRepo.save(
         userRepo.create({
           username: u.username,
           passwordHash: await bcrypt.hash(u.password, 10),
           name: u.name,
+          email: u.email,
           department: u.department,
           roles,
         }),

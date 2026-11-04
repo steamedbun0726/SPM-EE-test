@@ -12,6 +12,7 @@ import { SystemConfig } from '../src/database/entities/system-config.entity';
 import { SeatStatusLog } from '../src/database/entities/seat-status-log.entity';
 import { InitSchema1780000000000 } from '../src/database/migrations/1780000000000-init-schema';
 import { ReservationsService } from '../src/modules/m1-seats/reservations.service';
+import QRCode = require('qrcode');
 import { SpacesService } from '../src/shared/spaces/spaces.service';
 import { SeatStateService } from '../src/shared/spaces/seat-state.service';
 import { SystemConfigService } from '../src/shared/system-config/system-config.service';
@@ -31,6 +32,12 @@ function todayStr(): string {
 function tomorrowStr(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function afterTomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 2);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
@@ -257,6 +264,53 @@ describe('M1 自习座位预约（ReservationsService，sqljs 内存库）', () 
     await expect(
       service.bookSeat(USER1, { seatId: csSeats[0].id, date, startHour: 10, endHour: 12 }, { department: '数学学院' }),
     ).rejects.toThrow(ForbiddenException);
+
+    // 无部门上下文（如未识别院系的调用方）：院系空间不可见、不可预约；公共空间不受影响
+    const noDept = await service.searchSeats({ date, startHour: 10, endHour: 12 });
+    expect(noDept.filter((i) => i.spaceId === csSpace.id)).toHaveLength(0);
+    expect(noDept.filter((i) => i.spaceId === libSpace.id).length).toBeGreaterThan(0);
+    await expect(
+      service.bookSeat(USER1, { seatId: csSeats[1].id, date, startHour: 10, endHour: 12 }),
+    ).rejects.toThrow(ForbiddenException);
+
+    // 本系学生预约成功（放行断言）
+    const ok = await service.bookSeat(
+      USER1,
+      { seatId: csSeats[2].id, date, startHour: 10, endHour: 12 },
+      { department: '计算机学院' },
+    );
+    expect(ok.status).toBe('booked');
+    expect(ok.spaceId).toBe(csSpace.id);
+  });
+
+  it('签到二维码：SVG 结构合法，内容与当日动态码一致，同一空间同日确定', async () => {
+    const date = tomorrowStr();
+    const qr = await service.getQrCode(libSpace.id, date);
+
+    // SVG 结构：以 <svg 开头、含 </svg>，且携带二维码矩阵 path
+    expect(qr.svg.startsWith('<svg')).toBe(true);
+    expect(qr.svg).toContain('</svg>');
+    expect(qr.svg).toContain('<path');
+
+    // 内容与动态码一致（二维码内容即签到码）
+    expect(qr.code).toBe(service.getDynamicCode(libSpace.id, date).code);
+    expect(qr.code).toMatch(/^A\d+\d{4}$/);
+
+    // SVG 即「以动态码为内容、固定参数」的确定性输出（防止编码内容被篡改而不自知）
+    const ref = await QRCode.toString(qr.code, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 240,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    expect(qr.svg).toBe(ref);
+
+    // 确定性：同一 (spaceId, date) 生成同一 SVG；不同日期生成不同 SVG
+    const again = await service.getQrCode(libSpace.id, date);
+    expect(again.svg).toBe(qr.svg);
+    const nextDay = await service.getQrCode(libSpace.id, afterTomorrowStr());
+    expect(nextDay.svg).not.toBe(qr.svg);
   });
 
   it('取消：未开始的 booked 可取消，已开始的不可取消', async () => {
@@ -317,5 +371,68 @@ describe('M1 自习座位预约（ReservationsService，sqljs 内存库）', () 
     expect(row!.bookingCount).toBe(3);
     expect(row!.checkedInCount).toBe(1);
     expect(row!.noShowCount).toBe(1);
+  });
+
+  it('statsOverview：近 7 天利用率 / 预约量 / 时段热力 / 每日趋势，取消不计入', async () => {
+    const today = todayStr();
+    const tomorrow = tomorrowStr();
+    const after = afterTomorrowStr();
+
+    // 有效预约 3 条：今天 9-11、明天 10-12、后天 14-16
+    await service.bookSeat(USER1, { seatId: libSeats[0].id, date: today, startHour: 9, endHour: 11 });
+    await service.bookSeat(USER1, { seatId: libSeats[1].id, date: tomorrow, startHour: 10, endHour: 12 });
+    await service.bookSeat(USER1, { seatId: libSeats[2].id, date: after, startHour: 14, endHour: 16 });
+
+    // 取消预约：不计入有效预约与热力
+    const cancelled = await service.bookSeat(USER1, {
+      seatId: libSeats[3].id,
+      date: tomorrow,
+      startHour: 18,
+      endHour: 19,
+    });
+    await service.cancel(USER1, cancelled.id);
+
+    const overview = await service.statsOverview(7);
+    expect(overview.days).toBe(7);
+    expect(overview.fromDate).toBe(today);
+    expect(overview.daily).toHaveLength(7);
+    expect(overview.hourly).toHaveLength(24);
+
+    // 汇总：3 条有效 + 1 条取消；有效座位小时 = 2+2+2
+    expect(overview.totals.reservations).toBe(3);
+    expect(overview.totals.cancelled).toBe(1);
+    expect(overview.totals.seats).toBe(16);
+    expect(overview.totals.seatHours).toBe(6);
+
+    // 容量 = LIB 10×14×7 + CS 4×12×7 + ALL 2×24×7 = 980+336+336 = 1652
+    expect(overview.totals.capacityHours).toBe(1652);
+    expect(overview.totals.utilization).toBe(0.4); // 6/1652≈0.363%
+
+    // 时段热力：今天 9-11→9,10；明天 10-12→10,11；后天 14-16→14,15；取消的 18 点不计
+    const hourly = (hour: number) => overview.hourly.find((x) => x.hour === hour)!.count;
+    expect(hourly(9)).toBe(1);
+    expect(hourly(10)).toBe(2);
+    expect(hourly(11)).toBe(1);
+    expect(hourly(14)).toBe(1);
+    expect(hourly(15)).toBe(1);
+    expect(hourly(18)).toBe(0);
+
+    // 每日趋势：今天 / 明天 / 后天各 1 条有效预约
+    const daily = (date: string) => overview.daily.find((x) => x.date === date)!.count;
+    expect(daily(today)).toBe(1);
+    expect(daily(tomorrow)).toBe(1);
+    expect(daily(after)).toBe(1);
+
+    // 按空间明细：LIB 3 条、6 座位小时、利用率 6/980≈0.6%
+    const lib = overview.spaces.find((s) => s.spaceId === libSpace.id)!;
+    expect(lib.seats).toBe(10);
+    expect(lib.bookingCount).toBe(3);
+    expect(lib.seatHours).toBe(6);
+    expect(lib.capacityHours).toBe(980);
+    expect(lib.utilization).toBe(0.6);
+
+    // days 越界收敛到 90
+    const clamped = await service.statsOverview(999);
+    expect(clamped.days).toBe(90);
   });
 });

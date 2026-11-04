@@ -1,0 +1,102 @@
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.avatar {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 44rpx;
+  background: linear-gradient(135deg, #4d8bff, #2b6cff);
+  color: #ffffff;
+  font-size: 34rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.user-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  margin-bottom: 6rpx;
+}
+
+.record-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10rpx;
+}
+
+.record-space {
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.record-meta {
+  font-size: 25rpx;
+  color: #5b6473;
+}
+
+.status {
+  font-size: 22rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+}
+
+.s-booked {
+  color: #2b6cff;
+  background: #eef4ff;
+}
+
+.s-checked {
+  color: #07a35a;
+  background: #e8f8ef;
+}
+
+.s-warn {
+  color: #d48806;
+  background: #fff7e6;
+}
+
+.s-muted {
+  color: #8a94a6;
+  background: #f2f4f7;
+}
+
+.record-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 20rpx;
+}
+
+.btn-ghost {
+  flex: 1;
+  height: 68rpx;
+  line-height: 68rpx;
+  font-size: 26rpx;
+  color: #5b6473;
+  background: #f5f7fb;
+  border-radius: 12rpx;
+  margin: 0;
+}
+
+.btn-small {
+  flex: 1;
+  height: 68rpx;
+  line-height: 68rpx;
+  font-size: 26rpx;
+  margin: 0;
+}
+
+.empty-action {
+  margin-top: 28rpx;
+}
+
+.checkin-tip {
+  text-align: center;
+  padding: 12rpx 16rpx 40rpx;
+  line-height: 1.6;
+}

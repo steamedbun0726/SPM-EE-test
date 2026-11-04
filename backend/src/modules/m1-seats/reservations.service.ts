@@ -6,7 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, In, Repository } from 'typeorm';
+import QRCode = require('qrcode');
+import { Between, FindOptionsWhere, In, Repository } from 'typeorm';
 import { Reservation, ReservationStatus } from '../../database/entities/reservation.entity';
 import { RoomBookingRequest } from '../../database/entities/room-booking-request.entity';
 import { Seat } from '../../database/entities/seat.entity';
@@ -50,6 +51,46 @@ export interface ReservationStatsRow {
   bookingCount: number;
   noShowCount: number;
   checkedInCount: number;
+}
+
+/** 运营看板：按空间统计明细 */
+export interface StatsOverviewSpaceRow {
+  spaceId: number;
+  code: string;
+  name: string;
+  seats: number;
+  bookingCount: number;
+  noShowCount: number;
+  checkedInCount: number;
+  /** 近 N 天有效预约占用座位小时数 */
+  seatHours: number;
+  /** 近 N 天可运营座位小时数 = 启用座位 × 每日开放时长 × 天数 */
+  capacityHours: number;
+  /** 座位利用率（0-100，保留 1 位小数） */
+  utilization: number;
+}
+
+/** 运营看板：汇总数据 */
+export interface StatsOverview {
+  days: number;
+  fromDate: string;
+  toDate: string;
+  totals: {
+    spaces: number;
+    seats: number;
+    reservations: number;
+    noShow: number;
+    checkedIn: number;
+    cancelled: number;
+    seatHours: number;
+    capacityHours: number;
+    utilization: number;
+  };
+  spaces: StatsOverviewSpaceRow[];
+  /** 24 小时时段热度：每条有效预约覆盖的小时各计 1 */
+  hourly: Array<{ hour: number; count: number }>;
+  /** 按日预约量（窗口内无预约的日期补 0） */
+  daily: Array<{ date: string; count: number }>;
 }
 
 /** 调用者上下文（用于院系自习室开放范围校验） */
@@ -291,6 +332,22 @@ export class ReservationsService {
     return { code: `A${spaceId}${String(sum % 10000).padStart(4, '0')}` };
   }
 
+  /**
+   * 教室屏幕用签到二维码（SVG）：内容与当日动态码一致，方便学生扫码签到。
+   * 确定性：同一 (spaceId, date) 生成同一二维码，教室屏幕当日保持不变。
+   */
+  async getQrCode(spaceId: number, date: string): Promise<{ code: string; svg: string }> {
+    const { code } = this.getDynamicCode(spaceId, date);
+    const svg = await QRCode.toString(code, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 240,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    return { code, svg };
+  }
+
   /** 运营统计：按空间统计全部预约数 / no_show 数 / 签到数（M1-11） */
   async stats(): Promise<ReservationStatsRow[]> {
     const spaces = await this.spaceRepo.find({ order: { id: 'ASC' } });
@@ -306,6 +363,98 @@ export class ReservationsService {
       });
     }
     return rows;
+  }
+
+  /**
+   * 运营看板统计（M1-11 增强）：今天起 N 天的预约量、座位利用率与时段热力。
+   * 口径：
+   *   - 窗口 = 今天起未来 N 天（含今天），聚焦预约运营（学生通常预订未来日期）
+   *   - 有效预约 = 状态非 cancelled（no_show / checked_in / completed 均计入）
+   *   - 座位利用率 = 有效预约座位小时数 / (启用座位 × 每日开放时长 × 天数)
+   */
+  async statsOverview(days = 7): Promise<StatsOverview> {
+    const span = Math.min(90, Math.max(1, Math.floor(Number(days)) || 7));
+    const fromDate = this.formatDate(new Date());
+    const to = new Date();
+    to.setDate(to.getDate() + (span - 1));
+    const toDate = this.formatDate(to);
+
+    const spaces = await this.spaceRepo.find({ order: { id: 'ASC' } });
+    const reservations = await this.resvRepo.find({ where: { date: Between(fromDate, toDate) } });
+    const effective = reservations.filter((r) => r.status !== 'cancelled');
+
+    const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 }));
+    const daily: Array<{ date: string; count: number }> = [];
+    for (let i = 0; i < span; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      daily.push({ date: this.formatDate(d), count: 0 });
+    }
+    const dailyMap = new Map(daily.map((d) => [d.date, d]));
+    for (const r of effective) {
+      const day = dailyMap.get(r.date);
+      if (day) day.count += 1;
+      for (let h = r.startHour; h < r.endHour; h++) {
+        if (h >= 0 && h < 24) hourly[h].count += 1;
+      }
+    }
+
+    const rows: StatsOverviewSpaceRow[] = [];
+    let totalSeats = 0;
+    let totalSeatHours = 0;
+    let totalCapacityHours = 0;
+    for (const s of spaces) {
+      const seats = await this.seatRepo.countBy({ spaceId: s.id, isActive: true });
+      const openHours = Math.max(1, this.parseHour(s.closeTime) - this.parseHour(s.openTime));
+      const mine = effective.filter((r) => r.spaceId === s.id);
+      const seatHours = mine.reduce((sum, r) => sum + Math.max(0, r.endHour - r.startHour), 0);
+      const capacityHours = seats * openHours * span;
+
+      totalSeats += seats;
+      totalSeatHours += seatHours;
+      totalCapacityHours += capacityHours;
+      rows.push({
+        spaceId: s.id,
+        code: s.code,
+        name: s.name,
+        seats,
+        bookingCount: mine.length,
+        noShowCount: mine.filter((r) => r.status === 'no_show').length,
+        checkedInCount: mine.filter((r) => r.status === 'checked_in').length,
+        seatHours,
+        capacityHours,
+        utilization: this.percent(seatHours, capacityHours),
+      });
+    }
+
+    return {
+      days: span,
+      fromDate,
+      toDate,
+      totals: {
+        spaces: spaces.length,
+        seats: totalSeats,
+        reservations: effective.length,
+        noShow: effective.filter((r) => r.status === 'no_show').length,
+        checkedIn: effective.filter((r) => r.status === 'checked_in').length,
+        cancelled: reservations.length - effective.length,
+        seatHours: totalSeatHours,
+        capacityHours: totalCapacityHours,
+        utilization: this.percent(totalSeatHours, totalCapacityHours),
+      },
+      spaces: rows,
+      hourly,
+      daily,
+    };
+  }
+
+  private percent(part: number, total: number): number {
+    return total > 0 ? Number(((part / total) * 100).toFixed(1)) : 0;
+  }
+
+  private formatDate(d: Date): string {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
 
   // ===== 内部工具 =====

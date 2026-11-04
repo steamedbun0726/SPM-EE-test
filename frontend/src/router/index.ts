@@ -50,6 +50,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '违约记录', description: 'M1 违约记录：no_show 历史' },
       },
       {
+        path: 'm1/ops',
+        name: 'm1-ops',
+        component: () => import('@/views/m1/OpsBoard.vue'),
+        meta: { title: '运营看板', description: 'M1 运营看板：预约量、座位利用率与时段热力' },
+      },
+      {
         path: 'm2',
         name: 'm2',
         component: () => import('@/views/m2/ApplyRoom.vue'),

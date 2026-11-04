@@ -95,9 +95,22 @@ export class ReservationsController {
     return this.reservationsService.getDynamicCode(spaceId, date);
   }
 
+  /** 教室屏幕用签到二维码（SVG）：内容与当日动态码一致（阶段 2 新增） */
+  @Get('spaces/:spaceId/qrcode')
+  qrCode(@Param('spaceId', ParseIntPipe) spaceId: number, @Query('date') date: string) {
+    return this.reservationsService.getQrCode(spaceId, date);
+  }
+
   @Get('stats')
   @Permissions('stats.view')
   stats() {
     return this.reservationsService.stats();
+  }
+
+  /** 运营看板：近 N 天预约量 / 座位利用率 / 时段热力（days 默认 7，范围 1-90） */
+  @Get('stats/overview')
+  @Permissions('stats.view')
+  statsOverview(@Query('days') days?: string) {
+    return this.reservationsService.statsOverview(days ? Number(days) : 7);
   }
 }
