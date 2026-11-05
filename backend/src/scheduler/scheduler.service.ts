@@ -34,7 +34,12 @@ export class SchedulerService {
     await Promise.allSettled([
       this.processReservationLifecycle().catch((e) => this.logger.error('M1 lifecycle error', e)),
       this.roomRequestsService.expireOverdue().catch((e) => this.logger.error('M2 expire error', e)),
-      this.workOrdersService.escalateOverdue().catch((e) => this.logger.error('M3 escalate error', e)),
+      // M3 两个任务必须串行：升级会重置 slaDeadline 与 slaWarned，
+      // 如果与预警并发执行，可能出现「刚升级就被判定为即将超时」的错误提醒。
+      this.workOrdersService
+        .escalateOverdue()
+        .then(() => this.workOrdersService.warnSlaApproaching())
+        .catch((e) => this.logger.error('M3 sla task error', e)),
     ]);
   }
 

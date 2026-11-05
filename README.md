@@ -74,6 +74,6 @@ npm run dev              # 默认 http://localhost:5173
 
 ## 给开发者的下一步
 
-1. 阅读 `docs/requirements.md` 需求基线（含可追踪 ID）与 `docs/decisions/` 决策记录。
+1. 阅读 `docs/requirements/README.md` 需求基线（含可追踪 ID，按模块分文件）与 `docs/decisions/` 决策记录。
 2. 按模块认领：M1 / M2 / M3 各自独立目录，D 公共层归属按决策记录分工。
 3. 每个模块继续细化需求、补测试、完善 UI，按 AGENTS.md 规则提交与合并。

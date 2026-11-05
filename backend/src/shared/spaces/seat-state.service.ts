@@ -89,6 +89,87 @@ export class SeatStateService {
     return seats.length;
   }
 
+  /**
+   * M3 座位粒度下架（批量）。
+   *
+   * 用于「部分下架」：一间教室只有部分座位损坏时，只下架受影响的座位，
+   * 其余座位保持可预约。幂等：已是 maintenance 的座位跳过，返回实际变更数。
+   *
+   * 来源标记与整房间下架保持一致（source=M3、refType=work_order），
+   * 因此 SeatStatusLog 的追溯口径不需要区分两种粒度。
+   */
+  async setSeatsMaintenance(
+    seatIds: number[],
+    workOrderId: number | null,
+    operatorId: number | null,
+    reason: string,
+  ): Promise<number> {
+    if (!seatIds.length) return 0;
+    const seats = await this.seatRepo.findBy({ id: In(seatIds) });
+    let count = 0;
+    for (const seat of seats) {
+      if (seat.status === 'maintenance') continue;
+      await this.apply(seat, {
+        toStatus: 'maintenance',
+        source: 'M3',
+        refType: 'work_order',
+        refId: workOrderId,
+        reason,
+        operatorId,
+      });
+      count++;
+    }
+    return count;
+  }
+
+  /** 单座位下架（批量方法的便捷包装） */
+  async setSeatMaintenance(
+    seatId: number,
+    workOrderId: number | null,
+    operatorId: number | null,
+    reason: string,
+  ): Promise<boolean> {
+    return (await this.setSeatsMaintenance([seatId], workOrderId, operatorId, reason)) > 0;
+  }
+
+  /**
+   * M3 座位粒度恢复（批量）。
+   * 只恢复由维修导致下架的座位；非 maintenance 状态不动，避免误伤 M2 占用。
+   */
+  async restoreSeatsAfterMaintenance(
+    seatIds: number[],
+    workOrderId: number | null,
+    operatorId: number | null,
+    reason: string,
+  ): Promise<number> {
+    if (!seatIds.length) return 0;
+    const seats = await this.seatRepo.findBy({ id: In(seatIds) });
+    let count = 0;
+    for (const seat of seats) {
+      if (seat.status !== 'maintenance') continue;
+      await this.apply(seat, {
+        toStatus: 'available',
+        source: 'M3',
+        refType: 'work_order',
+        refId: workOrderId,
+        reason,
+        operatorId,
+      });
+      count++;
+    }
+    return count;
+  }
+
+  /** 单座位恢复（批量方法的便捷包装） */
+  async restoreSeatAfterMaintenance(
+    seatId: number,
+    workOrderId: number | null,
+    operatorId: number | null,
+    reason: string,
+  ): Promise<boolean> {
+    return (await this.restoreSeatsAfterMaintenance([seatId], workOrderId, operatorId, reason)) > 0;
+  }
+
   /** M2 审批通过：占用指定座位（该时段不接受个人预约） */
   async occupyByRoom(spaceId: number, requestId: number, seatIds: number[], operatorId: number | null, reason: string) {
     const seats = await this.seatRepo.findBy({ id: In(seatIds) });

@@ -19,11 +19,13 @@ import { AuditInterceptor } from './audit/audit.interceptor';
 import { SystemConfigService } from './system-config/system-config.service';
 import { SystemConfigController } from './system-config/system-config.controller';
 import { AuthModule } from './auth/auth.module';
+import { RbacModule } from './rbac/rbac.module';
 
 @Global()
 @Module({
   imports: [
     AuthModule,
+    RbacModule,
     TypeOrmModule.forFeature([
       Space,
       Seat,
@@ -49,6 +51,9 @@ import { AuthModule } from './auth/auth.module';
     NotificationsService,
     AuditService,
     SystemConfigService,
+    // 转出 RbacModule 而非单个 provider：Nest 要求 export 的 token 必须位于本模块
+    // 的 providers 或 imports 中，UsersService 由 RbacModule 提供，故整体转出
+    RbacModule,
   ],
 })
 export class SharedModule {}
