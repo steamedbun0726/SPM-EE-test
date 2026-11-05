@@ -55,6 +55,6 @@
 
 ## 与其他文档的关系
 
-- `docs/requirements.md`：项目级需求基线。本目录的 02 是其 M3 章节的展开，实现完成后需**回写**状态与验证方式。
+- `docs/requirements/`：项目级需求基线，按模块分文件。M3 对应 `docs/requirements/m3.md`，本目录的 02 是它的展开，实现完成后需**回写**状态与验证方式。
 - `docs/backend-contracts.md`：模块间接口契约。新增接口后需同步更新其 M3 章节。
 - `AGENTS.md`：工程约束（座位状态必须走 `SeatStateService`、禁止手工改库、测试必须真实断言）。本目录所有方案均遵守该约束。

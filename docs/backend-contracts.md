@@ -1,6 +1,6 @@
 # 后端模块实现契约（backend-contracts）
 
-> 本文档供 M1/M2/M3 模块实现时遵循。动手前必须阅读：`AGENTS.md`、`docs/requirements.md`、本契约，以及 `backend/src/database/entities/` 下所有实体文件。
+> 本文档供 M1/M2/M3 模块实现时遵循。动手前必须阅读：`AGENTS.md`、`docs/requirements/README.md`（需求基线）、本契约，以及 `backend/src/database/entities/` 下所有实体文件。
 
 ## 通用约定
 
