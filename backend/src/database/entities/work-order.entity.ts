@@ -74,11 +74,11 @@ export class WorkOrder {
   escalateLevel: number;
 
   /** 解决时限（SLA）：超过未完工则升级 */
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   slaDeadline: Date | null;
 
   /** 首次响应时限：工单被接单（开工）的最后时刻，与 slaDeadline 构成双时限考核 */
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   responseDeadline: Date | null;
 
   /**
@@ -88,23 +88,23 @@ export class WorkOrder {
    * 若直接拿它算 SLA 达标率，任何被升级过的工单都会显得"没有超时"。
    * originalSlaDeadline 只在挂起顺延时同步平移，用于事后统计，口径才自洽。
    */
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   originalSlaDeadline: Date | null;
 
   /** 维修员实际接单（开工）时刻，首响时长的计算起点终点 */
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   firstRespondedAt: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   dispatchedAt: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   inProgressAt: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   completedAt: Date | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   acceptedAt: Date | null;
 
   /** 验收评分 1-5 */
@@ -130,7 +130,7 @@ export class WorkOrder {
   seatIds: string;
 
   /** 预计恢复时间：告知报修人，可展示在 M1 座位卡片上 */
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   etaAt: Date | null;
 
   /** 现场照片 URL 列表（JSON 数组，最多 3 张） */
@@ -141,7 +141,7 @@ export class WorkOrder {
   @Column({ default: '' })
   appealReason: string;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   appealAt: Date | null;
 
   /** 申诉裁决：upheld=维持返工（报修人意见成立） overturned=推翻返工（维修员有理） */
@@ -151,7 +151,7 @@ export class WorkOrder {
   @Column({ type: 'int', nullable: true })
   appealHandledBy: number | null;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   appealHandledAt: Date | null;
 
   /** 低分（≤2 星）自动回访标记 */
@@ -179,14 +179,14 @@ export class WorkOrder {
   @Column({ default: false })
   holdRequested: boolean;
 
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   holdRequestedAt: Date | null;
 
   @Column({ type: 'int', nullable: true })
   holdRequestedBy: number | null;
 
   /** 挂起生效时刻；SLA 从这一刻起暂停计时 */
-  @Column({ type: 'datetime', nullable: true })
+  @Column({ type: Date, nullable: true })
   onHoldSince: Date | null;
 
   /** 挂起前的状态（dispatched / in_progress），恢复时据此还原 */

@@ -19,9 +19,11 @@
 |---------|----------|
 | `SpacesService` | `findAll`, `findById(id)`, `findByCode`, `findSeatById(seatId)`（含 space 关系）, `listSeats(spaceId)` |
 | `SeatStateService` | `setMaintenance(spaceId, workOrderId, operatorId, reason)`, `restoreAfterMaintenance(...)`, `occupyByRoom(spaceId, requestId, seatIds, operatorId, reason)`, `releaseRoom(spaceId, requestId, seatIds, operatorId, reason)`, `history(seatId, limit?)` |
-| `NotificationsService` | `send(userId, type, title, content)` |
+| `NotificationsService` | `send(userId, type, title, content)`, `sendBatch(userIds, type, title, content)`, `listForUser(userId, unreadOnly?)`, `markRead(id, userId)`, `markAllRead(userId)`, `unreadCount(userId)` |
 | `SystemConfigService` | `getInt(key, default)`, `get(key, default)` |
-| `AuditService` | `record(input)`（也可不直接用，全局拦截器已自动审计写接口） |
+| `AuditService` | `record(input)`, `findAll({keyword, page, pageSize})`（也可不直接用，全局拦截器已自动审计写接口） |
+
+D4 通知与 D5 审计的完整契约（失败语义、事务边界、未实现项）见 `docs/contracts/d4-notification.md` 与 `docs/contracts/d5-audit.md`。
 
 ## 座位状态字段（Seat）
 
